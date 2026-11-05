@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+/*
+ * Mobile / touch refinements
+ *
+ * Phones and tablets are first-class here: the console is used in schools where
+ * the device in hand is often a phone. Three things make that usable rather
+ * than merely fitting:
+ *
+ *  - iOS must not inflate text when the phone is turned sideways, and a
+ *    full-height shell must not leave its footer under the home indicator.
+ *  - A wide Form 1A table still scrolls sideways, but only inside its own card
+ *    and with momentum, so the gesture never drags the whole page.
+ *  - Compact chips and row actions are ~28px tall with a mouse. On a coarse
+ *    pointer they get a minimum height that a thumb can actually hit.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media (pointer: coarse) {
+  main button:not(:disabled),
+  main [role="button"],
+  main select {
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 767px) {
+  main {
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Sticky top bars and the off-canvas drawer sit clear of the notch and the
+   home indicator when the app is installed to a phone's home screen. */
+.app-topbar {
+  padding-top: env(safe-area-inset-top);
+}
+
+.side-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@theme {
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-bg: #080808;
+  --color-surface: #111111;
+  --color-fg: #e2e2e2;
+  --color-muted: #888888;
+  --color-primary: #00ff87;
+  --color-border: #1e1e1e;
+  --radius: 0.125rem;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    height: 100%;
+    margin: 0;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * Sign-in controls. A class rather than an inline style object: the form is
+ * server-rendered so it can paint before the client bundle loads, and React's
+ * server style serialization does not round-trip every inline value (font
+ * family quoting, for one) — which logs a hydration mismatch on the way in.
+ */
+.login-control {
+  width: 100%;
+  font-size: 14px;
+  padding: 11px 12px;
+  border-radius: 9px;
+  border: 1px solid #232323;
+  background: #080808;
+  color: #e2e2e2;
+  font-family: 'Outfit', system-ui, sans-serif;
+  outline: none;
+}
+
+.login-control:focus {
+  border-color: rgba(0, 255, 135, 0.45);
+  box-shadow: 0 0 0 3px rgba(0, 255, 135, 0.1);
+}
+
+/*
+ * Table row actions — All Schools (Open / Edit / Delete) and Student Records
+ * (Edit / Delete).
+ *
+ * On a device with a real pointer they stay out of sight until the row is
+ * hovered, so the table reads as data instead of a wall of buttons. Keyboard
+ * users see them the moment focus lands on one (an invisible focus target is
+ * unusable), and a touch screen has no hover at all, so there they stay put.
+ *
+ * `:focus-visible`, not `:focus-within`: a mouse click that leaves focus behind
+ * (a closed dialog hands focus back to its button) must not pin the actions in
+ * view — only a keyboard user needs them kept visible.
+ */
+.row-actions {
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .row-actions {
+    opacity: 0;
+  }
+  .group:hover .row-actions,
+  .group:has(:focus-visible) .row-actions {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-actions {
+    transition: none;
+  }
+}
