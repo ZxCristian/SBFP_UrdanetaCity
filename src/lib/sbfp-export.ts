@@ -1,7 +1,7 @@
 // SBFP Form 1A (.xlsx) export built on ExcelJS (Form 1A + Form 2) — real merges, styles and
 // embedded logo images (DepEd left, OK sa DepEd right), matching the printed form.
 import { Workbook, type Worksheet, type Cell } from "exceljs";
-import type { SummaryMatrixRow } from "./sbfp-domain.ts";
+import { capitalizePersonName, type SummaryMatrixRow } from "./sbfp-domain.ts";
 
 // ── Shared form types (mirrors src/sbfp-app.tsx) ───────────────────────────────
 export type GradeLevel =
@@ -126,6 +126,8 @@ export async function buildSbfpWorkbook(
 ): Promise<ArrayBuffer> {
   const titlePeriod = periodLabel === "All" ? "ALL PERIODS" : periodLabel.toUpperCase();
   const sorted = sortRecords(rows);
+  const principal = capitalizePersonName(school.principal);
+  const focalPerson = capitalizePersonName(school.focalPerson);
 
   const workbook = new Workbook();
   const ws = workbook.addWorksheet("SBFP Master List", {
@@ -172,9 +174,9 @@ export async function buildSbfpWorkbook(
   // Form details — bold label + value in adjacent cells (rows 7–11)
   const details: [string, string, string][] = [
     ["A7", "Division:", school.division || ""],
-    ["H7", "Name of Principal / School Head:", school.principal || ""],
+    ["H7", "Name of Principal / School Head:", principal],
     ["A8", "City/Municipality/Barangay:", school.cityMunicipalityBarangay || ""],
-    ["H8", "Name of Feeding Focal Person:", school.focalPerson || ""],
+    ["H8", "Name of Feeding Focal Person:", focalPerson],
     ["A9", "Name of School / School District :", school.name || ""],
     ["A10", "School Type:", school.type || ""],
     ["A11", "School ID Number:", school.schoolIdNumber || ""],
@@ -248,7 +250,9 @@ export async function buildSbfpWorkbook(
       const cell = row.getCell(ci + 1);
       cell.value = v === "" ? null : v;
       cell.font = { name: FONT, size: 9 };
-      cell.alignment = { vertical: "middle", wrapText: ci !== 1 };
+      cell.alignment = ci === 1
+        ? { horizontal: "center", vertical: "middle", wrapText: false }
+        : { vertical: "middle", wrapText: true };
       borderCell(cell);
     });
   });
@@ -260,7 +264,7 @@ export async function buildSbfpWorkbook(
   ws.getCell(`B${signRow}`).font = { name: FONT, size: 10, bold: true };
   // The name above the designation, matching Form 2's signature block — no
   // ruled line over the School Head / Principal.
-  ws.getCell(`B${signRow + 3}`).value = school.principal || "";
+  ws.getCell(`B${signRow + 3}`).value = principal;
   ws.getCell(`B${signRow + 3}`).font = { name: FONT, size: 11, bold: true };
   ws.getCell(`B${signRow + 4}`).value = "School Head / Principal";
   ws.getCell(`B${signRow + 4}`).font = { name: FONT, size: 10, bold: true };
@@ -357,6 +361,8 @@ export async function buildSummaryWorkbook(
 ): Promise<ArrayBuffer> {
   const { school, period, cohort, bmiStatuses, hfaStatuses, rows } = input;
   const sy = input.sy || "2025-2026";
+  const principal = capitalizePersonName(school.principal);
+  const focalPerson = capitalizePersonName(school.focalPerson);
   const workbook = new Workbook();
   const ws = workbook.addWorksheet("SBFP Form 2", {
     pageSetup: {
@@ -547,9 +553,9 @@ export async function buildSummaryWorkbook(
   approved.font = { name: FONT, size: 10, bold: true };
 
   const signatures: [number, number, string][] = [
-    [signRow + 3, preparedCol, school.focalPerson || ""],
+    [signRow + 3, preparedCol, focalPerson],
     [signRow + 4, preparedCol, "SBFP DepEd Focal"],
-    [signRow + 3, approvedCol, school.principal || ""],
+    [signRow + 3, approvedCol, principal],
     [signRow + 4, approvedCol, "School Head / Principal"],
   ];
   for (const [rowNo, col, text] of signatures) {
