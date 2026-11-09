@@ -1626,7 +1626,7 @@ function DataEntry({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
             <Field text="Full name" required hint={nameError ? "The learner's name is required." : "Last name, First name Middle name"}>
-              <input value={form.name} onChange={e => set("name", e.target.value)} placeholder="dela Cruz, Juan M." style={control} />
+              <input value={form.name} onChange={e => set("name", e.target.value)} placeholder="Juan M. Dela Cruz" style={control} />
             </Field>
           </div>
           <Field text="Sex">

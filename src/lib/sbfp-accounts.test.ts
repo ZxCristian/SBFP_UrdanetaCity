@@ -186,7 +186,7 @@ describe("issuing an account", () => {
       email: "  TEACHER.A@DepEdUrdaneta.gov.ph ",
       password: "sbpf-ay2k9",
       role: "teacher",
-      fullName: "Dela Cruz, Maria",
+      fullName: "Maria Dela Cruz",
       position: "SBFP Feeding Focal Person",
       contact: "0917 000 1111",
       schoolId: SCHOOL_A,
@@ -330,7 +330,7 @@ describe("the Division Office account", () => {
       SCHOOL_A,
       {
         id: "tf_a1",
-        author: "Dela Cruz, Maria",
+        author: "Maria Dela Cruz",
         role: "SBFP Focal",
         category: "Nutrition Data",
         rating: 4,
@@ -1075,7 +1075,7 @@ describe("school years", () => {
       SCHOOL_A,
       {
         id: "sy_f1",
-        author: "Dela Cruz, Maria",
+        author: "Maria Dela Cruz",
         role: "SBFP Feeding Focal Person",
         category: "Feeding Implementation",
         rating: 5,
@@ -1180,7 +1180,7 @@ describe("school years", () => {
       SCHOOL_A,
       {
         id: "sy_f2",
-        author: "Dela Cruz, Maria",
+        author: "Maria Dela Cruz",
         role: "SBFP Feeding Focal Person",
         category: "Feeding Implementation",
         rating: 4,
