@@ -276,8 +276,8 @@ export function capitalizePersonName(value: string): string {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/\p{L}+/gu, (word) => {
-      const upper = word.toLocaleUpperCase("en-PH");
-      const lower = word.toLocaleLowerCase("en-PH");
+      const upper = word.toUpperCase();
+      const lower = word.toUpperCase();
       if (NAME_SUFFIXES.has(upper)) return upper;
       if (word !== upper && word !== lower) return word;
       return upper.charAt(0) + lower.slice(1);
