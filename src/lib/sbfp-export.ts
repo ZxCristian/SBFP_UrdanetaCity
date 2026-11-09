@@ -264,7 +264,7 @@ export async function buildSbfpWorkbook(
   ws.getCell(`B${signRow}`).font = { name: FONT, size: 10, bold: true };
   // The name above the designation, matching Form 2's signature block — no
   // ruled line over the School Head / Principal.
-  ws.getCell(`B${signRow + 3}`).value = principal;
+  ws.getCell(`B${signRow + 3}`).value = principal.toUpperCase();
   ws.getCell(`B${signRow + 3}`).font = { name: FONT, size: 11, bold: true };
   ws.getCell(`B${signRow + 4}`).value = "School Head / Principal";
   ws.getCell(`B${signRow + 4}`).font = { name: FONT, size: 10, bold: true };

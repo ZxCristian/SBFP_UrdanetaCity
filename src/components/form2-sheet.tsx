@@ -321,8 +321,8 @@ export function Form2Sheet({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 36, marginTop: 26, fontSize: 10.5 }}>
         {[
-          { role: "Prepared by:", name: capitalizePersonName(school.focalPerson), title: "SBFP DepEd Focal" },
-          { role: "Approved by:", name: capitalizePersonName(school.principal), title: "School Head / Principal" },
+          { role: "Prepared by:", name: capitalizePersonName(school.focalPerson.toUpperCase()), title: "SBFP DepEd Focal" },
+          { role: "Approved by:", name: capitalizePersonName(school.principal.toUpperCase()), title: "School Head / Principal" },
         ].map((sig) => (
           <div key={sig.role}>
             <div style={{ fontWeight: 700 }}>{sig.role}</div>
