@@ -1261,7 +1261,7 @@ function DataEntry({ students, setStudents, school, setView, editingStudent, cle
         <div className="text-[9px] tracking-widest uppercase" style={{ color:t.dim }}>Student Information</div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Field t={t} label="Full Name" span="md:col-span-2">
-            <input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="Last, First Middle" style={inp} className={cls} />
+            <input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="Juan C. Dela Cruz" style={inp} className={cls} />
           </Field>
           <Field t={t} label="Sex">
             <div className="flex gap-1.5 h-[38px]">

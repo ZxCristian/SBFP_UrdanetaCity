@@ -1168,8 +1168,8 @@ function ProfileScreen({ profile, school }: { profile: TeacherProfile; school: S
   };
 
   const detailFields: [keyof SchoolFormDetails, string, string][] = [
-    ["principal", "Name of Principal / School Head", "Printed on both SBFP forms."],
-    ["focalPerson", "Name of Feeding Focal Person", "The signatory on the printed forms."],
+    ["principal", "Name of Principal / School Head", "Printed Name on Form 1A and Form 2."],
+    ["focalPerson", "Name of Feeding Focal Person", "Printed Name on Form 1A and Form 2."],
     ["schoolIdNumber", "School ID Number", "The DepEd school ID of this school."],
     ["cityMunicipalityBarangay", "City/Municipality/Barangay", "e.g. Urdaneta City, Barangay San Vicente East."],
     ["division", "Division", "Schools Division Office."],
@@ -1625,7 +1625,7 @@ function DataEntry({
       <Card title="Learner information">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
-            <Field text="Full name" required hint={nameError ? "The learner's name is required." : "Last name, First name Middle name"}>
+            <Field text="Full name" required hint={nameError ? "The learner's name is required." : "First name Middle name Last name — e.g. Juan M. Dela Cruz"}>
               <input value={form.name} onChange={e => set("name", e.target.value)} placeholder="Juan M. Dela Cruz" style={control} />
             </Field>
           </div>
