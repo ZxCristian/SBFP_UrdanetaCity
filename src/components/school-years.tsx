@@ -5,7 +5,8 @@
  * Starting a new year closes it, keeps its learner records and feedback in the
  * archive, and resets the live school information (teacher accounts carry over).
  * Nothing is deleted: the page below reads a past year's rows by their `sy`
- * stamp and can export any school's Form 1A from the year's own form header.
+ * stamp and can export any school's Form 1A and Form 2 from the year's own
+ * form header and manual Form 2 counts.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
@@ -16,7 +17,25 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { formatSchoolYear, nextSchoolYear, schoolYearProblem } from "@/lib/sbfp-years";
 import type { ArchivedSchoolYear, SchoolYearSummary } from "@/lib/sbfp-years";
-import type { Period, School, TC } from "@/sbfp-app";
+import {
+  BMI_STATUSES,
+  HFA_STATUSES,
+  SPED_SCHOOL_NAME,
+  calcBMI,
+  classifyBMI,
+  classifyHFA,
+  computeAge,
+  countsAsPregnantOrYoung,
+  getGrades,
+  type GradeLevel,
+  type Period,
+  type School,
+  type Sex,
+  type Student,
+  type SummaryExtra,
+  type SummaryMatrixRow,
+} from "@/lib/sbfp-domain";
+import type { TC } from "@/sbfp-app";
 
 const font = "'Outfit', sans-serif";
 const mono = "'JetBrains Mono', monospace";
@@ -31,6 +50,121 @@ const fmt = (iso: string) => {
 /** A learner is one person across Baseline/Midline/Endline. */
 const learnerKey = (r: { schoolId: string; name: string; dateOfBirth: string; sex: string }) =>
   `${r.schoolId}|${r.name}|${r.dateOfBirth}|${r.sex}`;
+
+/**
+ * The archived year's Form 2 rows. This mirrors the live Summary Table: WHO
+ * statuses are classified from the measurements when an older row has none,
+ * and the SPED school's grades are folded together in the archive's all-school
+ * view. The manual at-risk / IP figures come from the archived extras, not
+ * from today's year.
+ */
+function archivedSummaryRows(
+  school: School,
+  rows: Student[],
+  period: Period,
+  extras: SummaryExtra[],
+): SummaryMatrixRow[] {
+  const isSpedGrade = (grade: string) => grade.startsWith("SPED");
+  const allGrades = getGrades(school);
+  const mergeSped = school.name === SPED_SCHOOL_NAME;
+  const grades = mergeSped ? allGrades.filter((grade) => !isSpedGrade(grade)) : allGrades;
+  const inGrade = (grade: string, rowGrade: GradeLevel) =>
+    mergeSped ? grade.replace(/^SPED /, "") === rowGrade : grade === rowGrade;
+
+  const classified = rows.map((student) => ({
+    ...student,
+    bmiStatus:
+      student.bmiStatus ||
+      classifyBMI(
+        student.bmi || calcBMI(student.weight, student.height),
+        student.ageYears || computeAge(student.dateOfBirth).years,
+        student.sex,
+      ),
+    hfaStatus:
+      student.hfaStatus ||
+      classifyHFA(
+        student.height,
+        student.ageYears || computeAge(student.dateOfBirth).years,
+        student.sex,
+      ),
+  }));
+
+  const tally = (grade: GradeLevel | null, sex: Sex | null) => {
+    const out = {
+      bmi: BMI_STATUSES.map(() => 0),
+      hfa: HFA_STATUSES.map(() => 0),
+      learners: 0,
+      fourPs: 0,
+      sbfp: 0,
+      dewormed: 0,
+      pregnantYoung: 0,
+    };
+    for (const student of classified) {
+      if (sex !== null && student.sex !== sex) continue;
+      if (grade !== null && !inGrade(student.gradeLevel, grade)) continue;
+      out.learners += 1;
+      const bmi = BMI_STATUSES.indexOf(student.bmiStatus);
+      if (bmi >= 0) out.bmi[bmi] += 1;
+      const hfa = HFA_STATUSES.indexOf(student.hfaStatus);
+      if (hfa >= 0) out.hfa[hfa] += 1;
+      if (student.fourPs === "Yes") out.fourPs += 1;
+      if (student.sbfpPreviousYears === "Yes") out.sbfp += 1;
+      if (student.dewormed === "Yes") out.dewormed += 1;
+      if (countsAsPregnantOrYoung(student)) out.pregnantYoung += 1;
+    }
+    return out;
+  };
+
+  const extraMap = new Map<string, { atRisk: number; ips: number }>();
+  for (const extra of extras) {
+    if (extra.schoolId !== school.id || extra.period !== period) continue;
+    extraMap.set(`${extra.grade}|${extra.sex}`, {
+      atRisk: extra.atRisk,
+      ips: extra.ips,
+    });
+  }
+  const extraFor = (grade: GradeLevel, sex: "M" | "F", field: "atRisk" | "ips") => {
+    const keys = mergeSped && !isSpedGrade(grade) ? [grade, `SPED ${grade}`] : [grade];
+    return keys.reduce(
+      (sum, key) => sum + (extraMap.get(`${key}|${sex}`)?.[field] ?? 0),
+      0,
+    );
+  };
+  const manual = (
+    grade: GradeLevel | null,
+    sex: "M" | "F" | "Total",
+    field: "atRisk" | "ips",
+  ): number => {
+    if (grade === null) {
+      return grades.reduce((sum, rowGrade) => sum + manual(rowGrade, sex, field), 0);
+    }
+    if (sex === "Total") return manual(grade, "M", field) + manual(grade, "F", field);
+    return extraFor(grade, sex, field);
+  };
+
+  const perGrade = (grade: GradeLevel | null, label: string): SummaryMatrixRow[] =>
+    (["M", "F", "Total"] as const).map((sexLabel) => {
+      const sex = sexLabel === "Total" ? null : sexLabel;
+      const counts = tally(grade, sex);
+      return {
+        grade: label,
+        sex: sexLabel,
+        bmi: counts.bmi,
+        hfa: counts.hfa,
+        pregnantYoung: counts.pregnantYoung,
+        dewormed: counts.dewormed,
+        fourPs: counts.fourPs,
+        sbfp: counts.sbfp,
+        atRisk: manual(grade, sexLabel, "atRisk"),
+        ips: manual(grade, sexLabel, "ips"),
+      };
+    });
+
+  return [
+    ...grades.flatMap((grade) => perGrade(grade, grade)),
+    ...perGrade(null, "GRAND TOTAL"),
+  ];
+}
 
 function Stat({ label, value, accent, t }: { label: string; value: number; accent?: boolean; t: TC }) {
   return (
@@ -188,18 +322,11 @@ export default function SchoolYears({
       );
   }, [archive, schoolFocus, period]);
 
-  const exportSchool = async (schoolId: string) => {
-    if (!archive) return;
-    const rows = archive.records.filter(
-      (r) => r.schoolId === schoolId && (period === "All" || r.period === period),
-    );
-    if (rows.length === 0) {
-      setError("That school has no learner records in this period.");
-      return;
-    }
+  const formInfo = (schoolId: string) => {
+    if (!archive) return null;
     const school = schools.find((s) => s.id === schoolId);
     const form = archive.profiles[schoolId];
-    const info = {
+    return {
       name: school?.name ?? schoolId,
       type: school?.type ?? "",
       division: form?.division ?? "Urdaneta City",
@@ -210,11 +337,60 @@ export default function SchoolYears({
       dateStartFeeding: form?.dateStartFeeding ?? "",
       lastMileSchool: form?.lastMileSchool ?? "",
     };
+  };
+
+  const exportForm1 = async (schoolId: string) => {
+    if (!archive) return;
+    const rows = archive.records.filter(
+      (r) => r.schoolId === schoolId && (period === "All" || r.period === period),
+    );
+    if (rows.length === 0) {
+      setError("That school has no learner records in this period.");
+      return;
+    }
+    const info = formInfo(schoolId);
+    if (!info) return;
     try {
       const { exportStudentsToExcel } = await import("@/lib/sbfp-export");
       await exportStudentsToExcel(info, rows, period, archive.sy);
     } catch (err) {
       setError(err instanceof Error ? err.message : "The export could not be built.");
+    }
+  };
+
+  const exportForm2 = async (schoolId: string) => {
+    if (!archive) return;
+    if (period === "All") {
+      setError("Choose Baseline, Midline, or Endline to export Form 2 — it covers one feeding period.");
+      return;
+    }
+    const school = schools.find((s) => s.id === schoolId);
+    if (!school) {
+      setError("That school is no longer in the school list.");
+      return;
+    }
+    const rows = archive.records.filter(
+      (r) => r.schoolId === schoolId && r.period === period,
+    );
+    if (rows.length === 0) {
+      setError("That school has no learner records in this period.");
+      return;
+    }
+    const info = formInfo(schoolId);
+    if (!info) return;
+    try {
+      const { exportSummaryToExcel } = await import("@/lib/sbfp-export");
+      await exportSummaryToExcel({
+        school: info,
+        period,
+        cohort: "All",
+        sy: archive.sy,
+        bmiStatuses: BMI_STATUSES,
+        hfaStatuses: HFA_STATUSES,
+        rows: archivedSummaryRows(school, rows, period, archive.summaryExtras),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The Form 2 export could not be built.");
     }
   };
 
@@ -490,6 +666,11 @@ export default function SchoolYears({
                     {p}
                   </button>
                 ))}
+                {period === "All" && (
+                  <span className="text-[10px]" style={{ color: t.faint }}>
+                    Form 2 exports one period — choose Baseline, Midline, or Endline.
+                  </span>
+                )}
               </div>
 
               {schoolRows.length === 0 ? (
@@ -548,11 +729,30 @@ export default function SchoolYears({
                                 {schoolFocus === row.school.id ? "Hide learners" : "View learners"}
                               </button>
                               <button
-                                onClick={() => void exportSchool(row.school.id)}
+                                onClick={() => void exportForm1(row.school.id)}
                                 className="px-2.5 py-1 text-[10px] rounded-sm cursor-pointer border"
                                 style={{ color: t.accent, borderColor: t.accent + "40", background: t.accentBg }}
+                                title="SBFP Form 1A — Master List"
                               >
-                                ↓ Export
+                                ↓ Form 1
+                              </button>
+                              <button
+                                onClick={() => void exportForm2(row.school.id)}
+                                disabled={period === "All"}
+                                className="px-2.5 py-1 text-[10px] rounded-sm border"
+                                style={{
+                                  color: period === "All" ? t.faint : t.blue,
+                                  borderColor: period === "All" ? t.border : t.blue + "40",
+                                  background: period === "All" ? t.surface2 : t.blue + "14",
+                                  cursor: period === "All" ? "not-allowed" : "pointer",
+                                }}
+                                title={
+                                  period === "All"
+                                    ? "Choose a period above to export Form 2"
+                                    : "SBFP Form 2 — Summary of Beneficiaries"
+                                }
+                              >
+                                ↓ Form 2
                               </button>
                             </div>
                           </td>
@@ -654,7 +854,7 @@ export default function SchoolYears({
               </div>
 
               <p className="text-[10px] leading-relaxed" style={{ color: t.faint }}>
-                Exports use the school information block as it stood in SY {formatSchoolYear(archive.sy)}.
+                Form 1 and Form 2 exports use the school information block as it stood in SY {formatSchoolYear(archive.sy)}.
                 The current school profile is always the one on the console's All Schools page.
               </p>
             </>

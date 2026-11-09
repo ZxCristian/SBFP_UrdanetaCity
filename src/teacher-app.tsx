@@ -483,8 +483,9 @@ function TeacherForgotPassword({
       {sent && !sent.configured && (
         <SignInNotice tone="error">
           Email delivery is not set up yet, so no message could actually go out. Ask the
-          Division Office for a new temporary password, or add an email sender in Settings →
-          Environment.
+          Division Office for a new temporary password, or add{" "}
+          <strong style={{ color: C.text }}>RESEND_API_KEY</strong> and{" "}
+          <strong style={{ color: C.text }}>RESEND_FROM</strong> in Settings → Environment.
         </SignInNotice>
       )}
 
@@ -2437,7 +2438,7 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
   const syForExport = () => {
     const tally = new Map<string, number>();
     for (const s of shown) if (s.sy) tally.set(s.sy, (tally.get(s.sy) ?? 0) + 1);
-    let best = "2025-2026", n = 0;
+    let best = store.activeSy, n = 0;
     for (const [sy, c] of tally) if (c > n) { best = sy; n = c; }
     return best;
   };

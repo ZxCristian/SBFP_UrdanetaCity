@@ -43,7 +43,7 @@ import type {
   TrashedRecord,
 } from "@/lib/sbfp-shared";
 import { listSchools } from "./sbfp-schools.ts";
-import { getActiveSchoolYear, SchoolYearError } from "./sbfp-years.ts";
+import { currentSchoolYear, getActiveSchoolYear, SchoolYearError } from "./sbfp-years.ts";
 import type { ArchivedSchoolYear } from "./sbfp-years.ts";
 import { learnerProblem } from "./sbfp-validation.ts";
 import { mustNotBePregnant } from "./sbfp-domain.ts";
@@ -1305,7 +1305,7 @@ export async function pullData(sql: Sql, access: SbfpAccess): Promise<SbfpPayloa
   const activeYear = `coalesce(
     (select sy from sbfp_school_years where closed_at is null order by sy desc limit 1),
     (select sy from sbfp_school_years order by sy desc limit 1),
-    '2025-2026')`;
+    '${currentSchoolYear()}')`;
   const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
   const [activeSy, accounts, schools, records, feedbacks, trash, summaryExtras, version] = await Promise.all([
     getActiveSchoolYear(sql),
@@ -1455,8 +1455,8 @@ function toArchivedForm(row: ArchivedProfileDbRow): SchoolFormDetails {
 
 /**
  * One closed (or still active) school year, read-only: its learner records,
- * feedback and the school information block as it stood when the year closed.
- * The School Years page uses this; writes never do.
+ * feedback, Form 2 manual counts and the school information block as it stood
+ * when the year closed. The School Years page uses this; writes never do.
  */
 export async function getArchivedYear(sql: Sql, sy: string): Promise<ArchivedSchoolYear> {
   const years = await sql<{ sy: string; closed_at: string | Date | null }>`
@@ -1467,7 +1467,7 @@ export async function getArchivedYear(sql: Sql, sy: string): Promise<ArchivedSch
   }
   const active = !years[0].closed_at;
 
-  const [records, feedbacks, profiles, live] = await Promise.all([
+  const [records, feedbacks, profiles, live, summaryExtras] = await Promise.all([
     sql.query<RecordDbRow>(
       `select ${RECORD_COLUMNS} from sbfp_records
        where deleted_at is null and sy = $1 order by created_at desc`,
@@ -1489,6 +1489,11 @@ export async function getArchivedYear(sql: Sql, sy: string): Promise<ArchivedSch
           "select school_id, division, city_municipality_barangay, school_id_number, principal, focal_person, date_start_feeding, last_mile_school from sbfp_school_profiles",
         )
       : Promise.resolve([] as ArchivedProfileDbRow[]),
+    sql.query<SummaryExtraDbRow>(
+      `select school_id, sy, period, grade, sex, at_risk, ips
+       from sbfp_summary_extras where sy = $1`,
+      [sy],
+    ),
   ]);
 
   const profileMap: Record<string, SchoolFormDetails> = {};
@@ -1500,5 +1505,6 @@ export async function getArchivedYear(sql: Sql, sy: string): Promise<ArchivedSch
     records: records.map(toStudent),
     feedbacks: feedbacks.map(toFeedback),
     profiles: profileMap,
+    summaryExtras: summaryExtras.map(toSummaryExtra),
   };
 }

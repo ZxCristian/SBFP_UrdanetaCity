@@ -1980,7 +1980,7 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
   const syForExport = () => {
     const tally = new Map<string, number>();
     for (const s of f) if (s.sy) tally.set(s.sy, (tally.get(s.sy) ?? 0) + 1);
-    let best = "2025-2026", n = 0;
+    let best = activeSy, n = 0;
     for (const [sy, c] of tally) if (c > n) { best = sy; n = c; }
     return best;
   };

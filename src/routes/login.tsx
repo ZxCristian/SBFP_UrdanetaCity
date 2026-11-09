@@ -760,7 +760,9 @@ function ForgotPasswordForm({
       {sent && !sent.configured && (
         <Notice tone="error">
           This deployment has no email sender set up yet, so no message could actually go out.
-          Add an email API key and sender in Settings → Environment.
+          Add <strong style={{ color: T.text }}>RESEND_API_KEY</strong> and{" "}
+          <strong style={{ color: T.text }}>RESEND_FROM</strong> in Settings → Environment, then
+          redeploy.
         </Notice>
       )}
 

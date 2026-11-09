@@ -12,7 +12,12 @@
  * import `sbfp-accounts.ts`: that module imports the active-year helper here.
  */
 import type { Sql } from "./db.ts";
-import type { SchoolFormDetails, SchoolFeedback, Student } from "@/lib/sbfp-shared";
+import type {
+  SchoolFormDetails,
+  SchoolFeedback,
+  Student,
+  SummaryExtra,
+} from "@/lib/sbfp-shared";
 
 /** One row of the School Years page. */
 export interface SchoolYearSummary {
@@ -37,6 +42,8 @@ export interface ArchivedSchoolYear {
   feedbacks: SchoolFeedback[];
   /** The archived school information block, keyed by school id. */
   profiles: Record<string, SchoolFormDetails>;
+  /** Form 2's hand-entered at-risk / IP counts for this year. */
+  summaryExtras: SummaryExtra[];
 }
 
 export type SchoolYearErrorCode = "invalid_year" | "year_exists" | "year_not_found";
@@ -52,6 +59,17 @@ export class SchoolYearError extends Error {
 }
 
 const SCHOOL_YEAR_RE = /^(\d{4})-(\d{4})$/;
+
+/**
+ * The school year the calendar is in, used only when the database has no year
+ * row yet. Philippine school years open in June, so January–May still belong
+ * to the year that started the previous June.
+ */
+export function currentSchoolYear(now = new Date()): string {
+  const year = now.getFullYear();
+  const start = now.getMonth() >= 5 ? year : year - 1;
+  return `${start}-${start + 1}`;
+}
 
 /** "2025-2026" → "2025–2026", the way the printed forms write it. */
 export function formatSchoolYear(sy: string): string {
@@ -83,8 +101,8 @@ function isoOf(value: string | Date | null | undefined): string {
 
 /**
  * The year the app is working in. Falls back to the newest year in the table —
- * and, only if the table is somehow empty, to the year the app has always
- * stamped — so a page never renders without a year.
+ * and, only if the table is somehow empty, to the calendar's current year — so
+ * a page never renders without a year.
  */
 export async function getActiveSchoolYear(sql: Sql): Promise<string> {
   const open = await sql<{ sy: string }>`
@@ -94,7 +112,7 @@ export async function getActiveSchoolYear(sql: Sql): Promise<string> {
   const latest = await sql<{ sy: string }>`
     select sy from sbfp_school_years order by sy desc limit 1
   `;
-  return latest[0]?.sy ?? "2025-2026";
+  return latest[0]?.sy ?? currentSchoolYear();
 }
 
 /** Every year, newest first, with the counts the School Years page shows. */

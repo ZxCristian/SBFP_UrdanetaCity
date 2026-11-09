@@ -46,6 +46,7 @@ import type {
   SummaryExtra,
   TrashedRecord,
 } from "@/lib/sbfp-domain";
+import { currentSchoolYear } from "./sbfp-years";
 
 /** The pre-accounts store's key; read once to carry a school's work forward. */
 const LEGACY_STORAGE_KEY = "sbfp.teachers.v1";
@@ -145,7 +146,7 @@ const EMPTY: TeacherStoreState = Object.freeze({
   profiles: {},
   accounts: [],
   activeSchoolId: null,
-  activeSy: "2025-2026",
+  activeSy: currentSchoolYear(),
   records: [],
   feedbacks: [],
   trash: [],

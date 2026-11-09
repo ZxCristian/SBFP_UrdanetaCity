@@ -1086,6 +1086,13 @@ describe("school years", () => {
       ADMIN,
     );
 
+    await saveSummaryExtra(
+      db,
+      SCHOOL_A,
+      { period: "Baseline", grade: "Grade 3", sex: "F", atRisk: 4, ips: 2 },
+      ADMIN,
+    );
+
     const years = await listSchoolYears(db);
     assert.equal(years[0].records, 2, "both period rows belong to the year");
     assert.equal(years[0].learners, 1, "the same learner is counted once");
@@ -1134,6 +1141,14 @@ describe("school years", () => {
     assert.equal(archived.feedbacks[0].id, "sy_f1");
     assert.equal(archived.profiles[SCHOOL_A]?.principal, "Mr. Reyes");
     assert.equal(archived.profiles[SCHOOL_A]?.schoolIdNumber, "100123");
+    assert.deepEqual(
+      archived.summaryExtras
+        .filter((row) => row.schoolId === SCHOOL_A && row.period === "Baseline")
+        .map((row) => [row.grade, row.sex, row.atRisk, row.ips])
+        .sort(),
+      [["Grade 3", "F", 4, 2]],
+      "Form 2's manual counts stay with the archived year",
+    );
 
     // Live school information is blank for the new year ...
     assert.equal(await getSchoolProfile(db, SCHOOL_A), null);
