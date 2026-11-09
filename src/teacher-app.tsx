@@ -2000,7 +2000,7 @@ function MyRecords({
                   onMouseLeave={e => (e.currentTarget.style.background = gradeBreak ? C.surface2 : "transparent")}
                 >
                   {td(idx + 1, { mono: true, color: C.dim })}
-                  <td className="px-2 py-2 text-center font-medium" style={{ color: C.text, borderRight: `1px solid ${C.surface2}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
+                  <td className="px-2 py-2 text-left font-medium" style={{ color: C.text, borderRight: `1px solid ${C.surface2}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
                   {td(s.sex)}
                   {td(s.gradeLevel)}
                   {td(formatDateMDY(s.dateOfBirth), { mono: true })}

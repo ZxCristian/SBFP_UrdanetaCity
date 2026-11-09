@@ -1749,7 +1749,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
                   onMouseEnter={e => (e.currentTarget.style.background = t.hover)}
                   onMouseLeave={e => (e.currentTarget.style.background = gradeBreak ? t.surfaceDeep : "transparent")}>
                   {td(idx + 1, { mono: true, color: t.dim })}
-                  <td className="px-2 py-2 text-center font-medium" style={{ color: t.text, borderRight: `1px solid ${t.surfaceDeep}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
+                  <td className="px-2 py-2 text-left font-medium" style={{ color: t.text, borderRight: `1px solid ${t.surfaceDeep}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
                   {td(s.sex)}
                   {td(s.gradeLevel)}
                   {td(formatDateMDY(s.dateOfBirth), { mono: true })}

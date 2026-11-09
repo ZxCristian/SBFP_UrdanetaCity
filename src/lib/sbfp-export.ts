@@ -251,8 +251,8 @@ export async function buildSbfpWorkbook(
       cell.value = v === "" ? null : v;
       cell.font = { name: FONT, size: 9 };
       cell.alignment = ci === 1
-        ? { horizontal: "center", vertical: "middle", wrapText: false }
-        : { vertical: "middle", wrapText: true };
+        ? { horizontal: "left", vertical: "middle", wrapText: false }
+        : { horizontal: "center", vertical: "middle", wrapText: true };
       borderCell(cell);
     });
   });
