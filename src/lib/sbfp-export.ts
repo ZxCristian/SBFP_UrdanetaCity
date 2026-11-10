@@ -1,7 +1,8 @@
 // SBFP Form 1A (.xlsx) export built on ExcelJS (Form 1A + Form 2) — real merges, styles and
 // embedded logo images (DepEd left, OK sa DepEd right), matching the printed form.
 import { Workbook, type Worksheet, type Cell } from "exceljs";
-import { capitalizePersonName, type SummaryMatrixRow } from "./sbfp-domain.ts";
+import { uppercasePersonName, type SummaryMatrixRow } from "./sbfp-domain.ts";
+import { currentSchoolYear } from "./sbfp-years.ts";
 
 // ── Shared form types (mirrors src/sbfp-app.tsx) ───────────────────────────────
 export type GradeLevel =
@@ -122,12 +123,12 @@ export async function buildSbfpWorkbook(
   periodLabel: string,
   logoLeft?: string,
   logoRight?: string,
-  sy = "2025-2026",
+  sy = currentSchoolYear(),
 ): Promise<ArrayBuffer> {
   const titlePeriod = periodLabel === "All" ? "ALL PERIODS" : periodLabel.toUpperCase();
   const sorted = sortRecords(rows);
-  const principal = capitalizePersonName(school.principal);
-  const focalPerson = capitalizePersonName(school.focalPerson);
+  const principal = uppercasePersonName(school.principal);
+  const focalPerson = uppercasePersonName(school.focalPerson);
 
   const workbook = new Workbook();
   const ws = workbook.addWorksheet("SBFP Master List", {
@@ -264,7 +265,7 @@ export async function buildSbfpWorkbook(
   ws.getCell(`B${signRow}`).font = { name: FONT, size: 10, bold: true };
   // The name above the designation, matching Form 2's signature block — no
   // ruled line over the School Head / Principal.
-  ws.getCell(`B${signRow + 3}`).value = principal.toUpperCase();
+  ws.getCell(`B${signRow + 3}`).value = principal;
   ws.getCell(`B${signRow + 3}`).font = { name: FONT, size: 11, bold: true };
   ws.getCell(`B${signRow + 4}`).value = "School Head / Principal";
   ws.getCell(`B${signRow + 4}`).font = { name: FONT, size: 10, bold: true };
@@ -360,9 +361,9 @@ export async function buildSummaryWorkbook(
   logoRight?: string,
 ): Promise<ArrayBuffer> {
   const { school, period, cohort, bmiStatuses, hfaStatuses, rows } = input;
-  const sy = input.sy || "2025-2026";
-  const principal = capitalizePersonName(school.principal);
-  const focalPerson = capitalizePersonName(school.focalPerson);
+  const sy = input.sy || currentSchoolYear();
+  const principal = uppercasePersonName(school.principal);
+  const focalPerson = uppercasePersonName(school.focalPerson);
   const workbook = new Workbook();
   const ws = workbook.addWorksheet("SBFP Form 2", {
     pageSetup: {
@@ -597,7 +598,7 @@ export async function exportSummaryToExcel(input: SummaryExportInput) {
   const safeName = input.school.name.replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
   const safePeriod = input.period.replace(/\s+/g, "_");
   a.href = url;
-  a.download = `SBFP_Form_2_${safeName}_${safePeriod}_SY${input.sy || "2025-2026"}.xlsx`;
+  a.download = `SBFP_Form_2_${safeName}_${safePeriod}_SY${input.sy || currentSchoolYear()}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -630,7 +631,7 @@ export async function exportStudentsToExcel(
   school: SchoolFormInfo,
   rows: StudentRecord[],
   periodLabel: string,
-  sy = "2025-2026",
+  sy = currentSchoolYear(),
 ) {
   const [logoLeft, logoRight] = await Promise.all([
     fetchLogoBase64("/deped-logo.png"),

@@ -1,30 +1,38 @@
 /**
- * The district console — `/`.
+ * The School Portal — `/`, the division website's main page.
  *
- * The Division Office's own product, and the only page that issues School
- * Portal accounts, so it is closed: a signed-out visitor is sent to the sign-in
- * page, and a teacher is sent to her own site instead of being shown a console
- * she has no account for.
+ * This is the door every school uses: one account per school, the school's
+ * information block, learner records, Form 1/Form 2 exports and feedback to the
+ * Division Office. The Division Office's own console now lives at `/Admin`.
  *
- * The sign-in form is the FIRST paint. This route renders the sign-in screen
- * itself while the session and workspace are read, so the form is already in
- * the server's HTML response instead of a blank shell waiting for the client
- * bundle to redirect. Once the session resolves, an administrator's console
- * takes over, and a teacher is sent to her own site. That trades a brief
- * sign-in flash on a signed-in reload for never making a signed-out visitor
- * wait behind a loading screen.
+ * `?reset=<token>` is the address the School Portal password-reset email
+ * carries, so a school account gets its own warm portal theme instead of the
+ * Division Office's console sign-in page.
  */
-import { createFileRoute, Navigate } from "@tanstack/react-router";
-import SbfpApp from "@/sbfp-app";
-import { useAccess } from "@/lib/use-access";
-import { LoginScreen } from "./login";
+import { createFileRoute } from "@tanstack/react-router";
+import TeacherApp from "@/teacher-app";
 
-export const Route = createFileRoute("/")({ component: Home });
+export interface HomeSearch {
+  reset?: string;
+}
+
+export const Route = createFileRoute("/")({
+  component: Home,
+  validateSearch: (search: Record<string, unknown>): HomeSearch =>
+    typeof search.reset === "string" && search.reset ? { reset: search.reset } : {},
+  head: () => ({
+    meta: [
+      { title: "SBFP School Portal · Urdaneta City Schools" },
+      {
+        name: "description",
+        content:
+          "School desk for the School-Based Feeding Program: register your school, keep its SBFP profile, encode learner measurements, and send feedback to the district office.",
+      },
+    ],
+  }),
+});
 
 function Home() {
-  const access = useAccess();
-
-  if (access.status === "admin") return <SbfpApp />;
-  if (access.status === "teacher") return <Navigate to="/SchoolPortal" />;
-  return <LoginScreen access={access} />;
+  const { reset } = Route.useSearch();
+  return <TeacherApp resetToken={reset} />;
 }

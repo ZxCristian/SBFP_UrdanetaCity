@@ -1,7 +1,7 @@
 /**
  * The Division Office's sign-in page — `/login`.
  *
- * This is the door to the district console (`/`). The Division Office account is
+ * This is the door to the district console (`/Admin`). The Division Office account is
  * the one account the Division Office itself holds, and it is the only account
  * that can issue School Portal accounts, so the page has two faces:
  *
@@ -182,10 +182,12 @@ function AdminLogin() {
   const navigate = Route.useNavigate();
   // The form paints immediately, even while the session and the workspace are
   // still being read. Once the session resolves, a signed-in administrator is
-  // sent on to the console instead of being shown the form.
+  // sent on to the console instead of being shown the form, and a teacher is
+  // sent to the School Portal.
   // A reset link wins over the redirect: someone signed in on this browser may
   // still be the person who lost the password.
-  if (access.status === "admin" && !reset) return <Navigate to="/" />;
+  if (access.status === "admin" && !reset) return <Navigate to="/Admin" />;
+  if (access.status === "teacher" && !reset) return <Navigate to="/" />;
 
   return (
     <LoginScreen
@@ -199,7 +201,7 @@ function AdminLogin() {
 /**
  * The whole sign-in screen, independent of which route is showing it.
  *
- * `/` uses this too, so a signed-out visitor's FIRST HTML response contains
+ * `/Admin` uses this too, so a signed-out visitor's FIRST HTML response contains
  * the form — not an empty shell waiting for the client bundle to redirect to
  * `/login`. A signed-in administrator still lands on the console as soon as
  * the session read says so.
@@ -313,7 +315,7 @@ export function LoginScreen({
           <AdminPanel access={access} resetToken={resetToken} onResetDone={onResetDone} />
           <p style={{ fontSize: 12, color: T.dim, lineHeight: 1.6 }}>
             A school's personnel signs in on the{" "}
-            <Link to="/SchoolPortal" style={{ color: T.accent, textDecoration: "none" }}>
+            <Link to="/" style={{ color: T.accent, textDecoration: "none" }}>
               School Portal
             </Link>{" "}
             with the account the Division Office issued.
@@ -378,7 +380,7 @@ function AdminPanel({
           school, or sign in below with the Division Office credentials.
         </p>
         <div className="mt-5">
-          <Link to="/SchoolPortal" style={{ textDecoration: "none" }}>
+          <Link to="/" style={{ textDecoration: "none" }}>
             <Submit type="button">Open the School Portal →</Submit>
           </Link>
         </div>

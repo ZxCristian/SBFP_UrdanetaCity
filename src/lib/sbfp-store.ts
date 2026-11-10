@@ -1,7 +1,7 @@
 /**
  * The seam between the two SBFP websites.
  *
- * `/` (the Division Office console) and `/SchoolPortal` (a school's own site) are one
+ * `/Admin` (the Division Office console) and `/` (a school's own site) are one
  * app in two products, and this module is the shared, **server-backed** state
  * they both read:
  *

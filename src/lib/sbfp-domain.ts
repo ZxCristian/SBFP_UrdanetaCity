@@ -265,23 +265,9 @@ export function formatDateMDY(iso: string): string {
   return `${m[2]}/${m[3]}/${m[1]}`;
 }
 
-const NAME_SUFFIXES = new Set(["JR", "SR", "II", "III", "IV", "V"]);
-
-/**
- * Capitalize every word of a person's name for the printed forms, leaving
- * mixed-case spellings such as "McArthur" and suffixes such as "III" intact.
- */
-export function capitalizePersonName(value: string): string {
-  return value
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/\p{L}+/gu, (word) => {
-      const upper = word.toUpperCase();
-      const lower = word.toUpperCase();
-      if (NAME_SUFFIXES.has(upper)) return upper;
-      if (word !== upper && word !== lower) return word;
-      return upper.charAt(0) + lower.slice(1);
-    });
+/** Print a person's name in full capitals on the forms. */
+export function uppercasePersonName(value: string): string {
+  return value.trim().replace(/\s+/g, " ").toLocaleUpperCase("en-PH");
 }
 
 // ── WHO 2007 Reference Tables ──────────────────────────────────────────────────

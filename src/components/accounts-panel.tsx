@@ -676,7 +676,7 @@ function CreateAccountForm({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <label>
             <span style={{ ...label, color: t.dim }}>School Personnel's name *</span>
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Juan C. Dela Cruz" style={input(t)} />
+            <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Last, First Middle" style={input(t)} />
           </label>
           <label>
             <span style={{ ...label, color: t.dim }}>Position / designation</span>
