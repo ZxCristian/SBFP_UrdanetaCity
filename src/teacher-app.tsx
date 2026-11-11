@@ -703,9 +703,7 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
 
           <div style={{ fontSize: 12, color: C.dim, marginTop: 18 }}>
             One account per school, for every school in the division.{" "}
-            <a href="/Admin" style={{ color: C.navy, fontWeight: 600, textDecoration: "none" }}>
-              Division Office sign in →
-            </a>
+            
           </div>
         </div>
 
