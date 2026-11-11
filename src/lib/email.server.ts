@@ -1,28 +1,69 @@
 /**
  * Transactional email — the password reset for either account role.
  *
- * The app has no mail server of its own; Resend's HTTP API is called with
+ * The app has no mail server of its own; Mailjet's Send API v3.1 is called with
  * `fetch`, so nothing is added to the client bundle and no SDK is needed. The
- * API key lives only on the server (`RESEND_API_KEY`). `RESEND_FROM` is the
- * sender — a verified domain in production; Resend's own `onboarding@resend.dev`
- * works out of the box for testing to the account owner's address.
+ * API key and secret live only on the server (`MAILJET_API_KEY` and
+ * `MAILJET_SECRET_KEY`, or Mailjet's own `MJ_APIKEY_PUBLIC` and
+ * `MJ_APIKEY_PRIVATE`). `MAILJET_FROM` is a sender verified in Mailjet, either
+ * `name@example.com` or `Display Name <name@example.com>`;
+ * `MAILJET_FROM_NAME` can supply the display name when only an address is set.
  *
  * A failed send is never thrown at the sign-in screen: the screen deliberately
  * says the same thing whether or not an address holds the account, so it does
- * not reveal which addresses exist. The reason is logged on the server instead.
+ * not reveal which addresses exist. The reason is logged on the server and the
+ * safe part (not configured / provider refused / network) is returned to the
+ * Division Office's recovery form, which must not claim an email was sent when
+ * it was not.
  *
- * The reset tokens live in Supabase alongside the accounts. This app uses
+ * The reset tokens live in Postgres alongside the accounts. This app uses
  * Better Auth with Supabase Postgres, not Supabase Auth, so Supabase's built-in
- * auth emailer cannot send these messages; the existing Resend sender does.
+ * auth emailer cannot send these messages; this Mailjet sender does.
  */
 import { getRequestUrl } from "@tanstack/react-start/server";
 
-const RESEND_ENDPOINT = "https://api.resend.com/emails";
-const DEFAULT_FROM = "SBFP Health Monitor <onboarding@resend.dev>";
+const MAILJET_ENDPOINT = "https://api.mailjet.com/v3.1/send";
+
+interface MailjetCredentials {
+  key: string;
+  secret: string;
+}
+
+interface MailjetSender {
+  email: string;
+  name?: string;
+}
+
+/** The API pair, or null when either half has not been configured. */
+function mailjetCredentials(): MailjetCredentials | null {
+  const key = process.env.MAILJET_API_KEY?.trim();
+  const secret = process.env.MAILJET_SECRET_KEY?.trim();
+  if (key && secret) return { key, secret };
+  // Mailjet's documentation uses these names, so accept a copy/paste of them.
+  const publicKey = process.env.MJ_APIKEY_PUBLIC?.trim();
+  const privateKey = process.env.MJ_APIKEY_PRIVATE?.trim();
+  if (publicKey && privateKey) return { key: publicKey, secret: privateKey };
+  return null;
+}
+
+/** Read the verified sender, accepting `Name <email>` or a bare address. */
+function mailjetSender(): MailjetSender | null {
+  const raw = process.env.MAILJET_FROM?.trim();
+  if (!raw) return null;
+  const angled = raw.match(/^(.*?)\s*<([^<>]+)>$/);
+  const email = (angled?.[2] ?? raw).trim();
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(email)) return null;
+  const inlineName = (angled?.[1] ?? "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+  const name = inlineName || process.env.MAILJET_FROM_NAME?.trim() || "";
+  return name ? { email, name } : { email };
+}
 
 /** Whether this deployment can actually send mail. */
 export function emailConfigured(): boolean {
-  return Boolean(process.env.RESEND_API_KEY?.trim());
+  return Boolean(mailjetCredentials() && mailjetSender());
 }
 
 /** A safe http(s) origin from a configured value, or null. */
@@ -77,27 +118,36 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/** Why a recovery message did not go out. Safe to return to the sign-in screen. */
+export type EmailFailureReason = "not_configured" | "provider_rejected" | "network_error";
+
+/** The result of one send attempt. */
+export interface EmailDelivery {
+  delivered: boolean;
+  reason?: EmailFailureReason;
+}
+
 /**
- * Send the reset link. Returns whether Resend accepted the message; the caller
- * treats `false` as "nothing was sent" but still shows the neutral confirmation
- * (see the note at the top of this file).
+ * Send the reset link. The caller shows the neutral confirmation for "no such
+ * account" but must not claim the message is on its way when delivery failed;
+ * the reason lets the sign-in screen tell the Division Office what to fix.
  */
 export async function sendPasswordResetEmail(args: {
   to: string;
   url: string;
   expiresMinutes: number;
   role: "admin" | "teacher";
-}): Promise<boolean> {
-  const key = process.env.RESEND_API_KEY?.trim();
-  if (!key) {
+}): Promise<EmailDelivery> {
+  const credentials = mailjetCredentials();
+  const sender = mailjetSender();
+  if (!credentials || !sender) {
     console.warn(
-      "[email] RESEND_API_KEY is not set — password-reset email was not sent. " +
-        "Add it in Settings → Environment (and RESEND_FROM for a verified sender).",
+      "[email] Mailjet credentials are not complete — password-reset email was not sent. " +
+        "Set MAILJET_API_KEY, MAILJET_SECRET_KEY, and MAILJET_FROM in Settings → Environment.",
     );
-    return false;
+    return { delivered: false, reason: "not_configured" };
   }
 
-  const from = process.env.RESEND_FROM?.trim() || DEFAULT_FROM;
   const to = args.to.trim();
   const url = args.url;
   const minutes = args.expiresMinutes;
@@ -111,14 +161,14 @@ export async function sendPasswordResetEmail(args: {
     : "Reset your SBFP Division Console password";
 
   const text = [
-    `${product} — password reset`,
+    `${product} — account recovery`,
     "",
-    `A new password was requested for the ${account} (${to}).`,
-    `Open this link to choose one. It works once and expires in ${minutes} minutes:`,
+    `An account recovery link was requested for the ${account} (${to}).`,
+    `Open this link to choose a new password. It works once and expires in ${minutes} minutes:`,
     "",
     url,
     "",
-    "If you did not ask for this, ignore this email — your password has not changed.",
+    "If you did not request account recovery, ignore this email — your password has not changed.",
   ].join("\n");
 
   const html = `<!doctype html>
@@ -133,7 +183,7 @@ export async function sendPasswordResetEmail(args: {
           Reset your password
         </h1>
         <p style="margin:12px 0 0;font-size:14px;line-height:1.65;color:#9a9a9a;">
-          A new password was requested for the ${account}
+          An account recovery link was requested for the ${account}
           <strong style="color:#e2e2e2;">${safeTo}</strong>.
         </p>
         <p style="margin:18px 0 22px;">
@@ -147,7 +197,7 @@ export async function sendPasswordResetEmail(args: {
         </p>
         <p style="margin:0;font-size:12px;line-height:1.6;color:#7f7f7f;word-break:break-all;">${safeUrl}</p>
         <p style="margin:20px 0 0;padding-top:16px;border-top:1px solid #232323;font-size:12px;line-height:1.6;color:#6a6a6a;">
-          If you did not ask for this, ignore this email — your password has not changed.
+          If you did not request account recovery, ignore this email — your password has not changed.
         </p>
       </div>
     </div>
@@ -155,30 +205,53 @@ export async function sendPasswordResetEmail(args: {
 </html>`;
 
   try {
-    const response = await fetch(RESEND_ENDPOINT, {
+    const response = await fetch(MAILJET_ENDPOINT, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Basic ${btoa(`${credentials.key}:${credentials.secret}`)}`,
         "Content-Type": "application/json",
+        Accept: "application/json",
       },
       body: JSON.stringify({
-        from,
-        to: [to],
-        subject,
-        html,
-        text,
+        SandboxMode: false,
+        Messages: [
+          {
+            From: {
+              Email: sender.email,
+              ...(sender.name ? { Name: sender.name } : {}),
+            },
+            To: [{ Email: to }],
+            Subject: subject,
+            TextPart: text,
+            HTMLPart: html,
+          },
+        ],
       }),
     });
+    const detail = await response.text().catch(() => "");
     if (!response.ok) {
-      const detail = await response.text().catch(() => "");
       console.error(
-        `[email] Resend refused the reset email (${response.status}): ${detail.slice(0, 300)}`,
+        `[email] Mailjet refused the reset email (${response.status}) from "${sender.email}": ${detail.slice(0, 300)}`,
       );
-      return false;
+      return { delivered: false, reason: "provider_rejected" };
     }
-    return true;
+
+    // A 2xx only means Mailjet accepted the request. The per-message Status says
+    // whether it actually accepted this message for delivery.
+    let result: { Messages?: Array<{ Status?: string }> } | null = null;
+    try {
+      result = JSON.parse(detail) as { Messages?: Array<{ Status?: string }> };
+    } catch {
+      console.error(`[email] Mailjet returned an unreadable success body: ${detail.slice(0, 300)}`);
+    }
+    const message = result?.Messages?.[0];
+    if (message?.Status !== "success") {
+      console.error(`[email] Mailjet did not accept the reset email: ${detail.slice(0, 300)}`);
+      return { delivered: false, reason: "provider_rejected" };
+    }
+    return { delivered: true };
   } catch (err) {
-    console.error("[email] could not reach Resend", err);
-    return false;
+    console.error("[email] could not reach Mailjet", err);
+    return { delivered: false, reason: "network_error" };
   }
 }

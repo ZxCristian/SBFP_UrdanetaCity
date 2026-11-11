@@ -85,7 +85,6 @@ import { signInErrorMessage } from "@/lib/auth/sign-in-error";
 import {
   changeOwnPassword,
   lookupPreviousBeneficiary,
-  requestPasswordReset,
   resetPasswordWithToken,
 } from "@/lib/sbfp-api";
 import { MIN_PASSWORD_LENGTH } from "@/lib/sbfp-credentials";
@@ -389,11 +388,12 @@ const bmiTone = (s: string): "good" | "warn" | "danger" | "gold" | "muted" =>
   s === "Normal" ? "good" : s === "Severely Wasted" ? "danger" : s === "Wasted" ? "warn" : s ? "gold" : "muted";
 
 // ── Sign in ───────────────────────────────────────────────────────────────────
-// Accounts are issued by the Division Office, so there is nothing to register
-// here: school personnel sign in with the email and temporary password they
-// were handed, and land on their own school. If the password is gone, the same
-// Supabase-backed reset tokens the Division Office uses bring the account back
-// without asking the office to hand out another temporary one.
+// Accounts are issued and recovered by the Division Office, so there is nothing
+// to register or self-serve here: school personnel sign in with the email and
+// temporary password they were handed, and land on their own school. A school
+// that loses its account email or password is directed to the Technical
+// Assistant of the School-Based Feeding Program, who can reissue the account
+// details. Existing emailed reset links still open the password form.
 
 /** A lightweight notice in the School Portal's warm paper palette. */
 function SignInNotice({ tone, children }: { tone: "error" | "info"; children: ReactNode }) {
@@ -416,131 +416,37 @@ function SignInNotice({ tone, children }: { tone: "error" | "info"; children: Re
 }
 
 /**
- * The locked-out door for a school account. The confirmation is deliberately
- * neutral: the same words whether or not the address holds an active account,
- * so it cannot be used to discover which emails were issued.
+ * Where a school goes when the account email or password is lost.
+ *
+ * School accounts are not self-service: they are issued to one school by the
+ * Division Office, so recovery is handled by the program's Technical Assistant
+ * rather than by a public reset-email form.
  */
-function TeacherForgotPassword({
-  initialEmail,
-  onBack,
-}: {
-  initialEmail: string;
-  onBack: () => void;
-}) {
-  const [email, setEmail] = useState(initialEmail);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [sent, setSent] = useState<{ configured: boolean; previewUrl: string | null } | null>(null);
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail) {
-      setError("Enter the email address the Division Office issued for your school.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await requestPasswordReset({ data: { email: cleanEmail } });
-      setSent({ configured: result.configured, previewUrl: result.previewUrl });
-    } catch {
-      setError("The reset link could not be requested just now. Try again in a moment.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function AccountHelp() {
   return (
-    <form method="post" className="flex flex-col gap-4" onSubmit={submit}>
-      <Field
-        text="School account email"
-        hint="The address the Division Office issued for your school."
-      >
-        <input
-          type="email"
-          autoComplete="username"
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value);
-            setSent(null);
-          }}
-          placeholder="school@depedurdaneta.gov.ph"
-          style={control}
-        />
-      </Field>
-
-      {error && <SignInNotice tone="error">{error}</SignInNotice>}
-
-      {sent && (
-        <SignInNotice tone="info">
-          If <strong style={{ color: C.text }}>{email.trim().toLowerCase()}</strong> holds an
-          active School Portal account, a reset link is on its way. It works once and expires
-          in 30 minutes.
-        </SignInNotice>
-      )}
-
-      {sent && !sent.configured && (
-        <SignInNotice tone="error">
-          Email delivery is not set up yet, so no message could actually go out. Ask the
-          Division Office for a new temporary password, or add{" "}
-          <strong style={{ color: C.text }}>RESEND_API_KEY</strong> and{" "}
-          <strong style={{ color: C.text }}>RESEND_FROM</strong> in Settings → Environment.
-        </SignInNotice>
-      )}
-
-      {sent?.previewUrl && (
-        <a
-          href={sent.previewUrl}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: 40,
-            borderRadius: 9,
-            border: `1px dashed ${C.navy}66`,
-            background: C.navySoft,
-            color: C.navy,
-            fontSize: 12.5,
-            fontWeight: 600,
-            textDecoration: "none",
-            padding: "0 14px",
-          }}
-        >
-          Open the reset link (preview inbox) →
-        </a>
-      )}
-
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            background: "none",
-            border: "none",
-            padding: 0,
-            fontFamily: font,
-            fontSize: 12.5,
-            color: C.sub,
-            cursor: "pointer",
-          }}
-        >
-          ← Back to sign in
-        </button>
-        <Button type="submit" disabled={busy}>
-          {busy ? "Sending…" : sent ? "Send another link" : "Email me a reset link"}
-        </Button>
-      </div>
-
-      <p style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.6 }}>
-        Only one link is sent per minute, and a newer link replaces the previous one.
-      </p>
-    </form>
+    <div
+      style={{
+        marginTop: 14,
+        padding: "11px 13px",
+        borderRadius: 10,
+        border: `1px solid ${C.gold}33`,
+        background: C.goldSoft,
+        fontSize: 12,
+        color: C.sub,
+        lineHeight: 1.6,
+      }}
+    >
+      <strong style={{ color: C.text }}>Forgot your account?</strong> Contact the{" "}
+      <strong style={{ color: C.text }}>
+        Technical Assistant of the School-Based Feeding Program
+      </strong>{" "}
+      at the Division Office for your school's sign-in email or a new temporary password.
+    </div>
   );
 }
 
 /**
- * The other half of the emailed link: choose a new password, proven by the
+ * The other half of a previously emailed link: choose a new password, proven by the
  * token from the email. Reached at `/?reset=…`; the token is consumed
  * as it is read, so a used or expired link is refused.
  */
@@ -631,8 +537,8 @@ function TeacherResetPassword({ token }: { token: string }) {
                 Go to {destinationLabel} sign in →
               </a>
               <p style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.6 }}>
-                Setting a new password signs you out everywhere else. For another link, use
-                “Forgot your password?” on the sign-in form.
+                Setting a new password signs you out everywhere else. For another recovery
+                link, contact the Technical Assistant of the School-Based Feeding Program.
               </p>
             </div>
           ) : (
@@ -690,8 +596,6 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  /** Swapped for the sign-in form: "email me a reset link". */
-  const [forgot, setForgot] = useState(false);
   // Credential inputs have no `name` on purpose: a native submission before
   // hydration would otherwise put the password into the URL. `method="post"`
   // keeps that fallback out of the query string too.
@@ -718,7 +622,7 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
         const message = signInErrorMessage(authError);
         setError(
           message === "That email and password do not match an account."
-            ? `${message} Try “Forgot your password?” below, or ask the Division Office for a new temporary password.`
+            ? `${message} Check the details, or contact the Technical Assistant of the School-Based Feeding Program for a new temporary password.`
             : message,
         );
         return;
@@ -792,8 +696,9 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
             className="mt-7"
             style={{ fontSize: 12.5, color: C.sub, background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 12, padding: "12px 14px", maxWidth: 520, lineHeight: 1.6 }}
           >
-            <strong style={{ color: C.text }}>No account yet?</strong> Accounts are issued by the Division Office — ask
-            the SBFP coordinator for your school's sign-in email and temporary password.
+            <strong style={{ color: C.text }}>No account yet?</strong> Accounts are issued by the
+            Division Office. Contact the Technical Assistant of the School-Based Feeding Program
+            for your school's sign-in email and temporary password.
           </div>
 
           <div style={{ fontSize: 12, color: C.dim, marginTop: 18 }}>
@@ -808,100 +713,60 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
           {notice}
 
           <Card
-            title={forgot ? "Reset your password" : "Sign in to your school"}
-            subtitle={
-              forgot
-                ? "We will email a single-use link to the address the Division Office issued for your school."
-                : "Use the email and temporary password the Division Office issued."
-            }
+            title="Sign in to your school"
+            subtitle="Use the email and temporary password the Division Office issued."
           >
-            {forgot ? (
-              <TeacherForgotPassword
-                initialEmail={email}
-                onBack={() => {
-                  setForgot(false);
-                  setError("");
-                }}
-              />
-            ) : (
-              <>
-                <form
-                  method="post"
-                  className="flex flex-col gap-4"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    // Read the fields at submit time so a password manager's
-                    // autofill is accepted even when it did not fire input events.
-                    void submit(
-                      emailRef.current?.value ?? email,
-                      passwordRef.current?.value ?? password,
-                    );
-                  }}
-                >
-                  <Field text="Email">
-                    <input
-                      ref={emailRef}
-                      type="email"
-                      autoComplete="username"
-                      value={email}
-                      onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                      placeholder="school@depedurdaneta.gov.ph"
-                      style={control}
-                    />
-                  </Field>
-                  <Field text="Password">
-                    <div className="flex gap-2">
-                      <input
-                        ref={passwordRef}
-                        type={show ? "text" : "password"}
-                        autoComplete="current-password"
-                        value={password}
-                        onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                        placeholder="••••••••"
-                        style={control}
-                      />
-                      <Button small tone="ghost" type="button" onClick={() => setShow((v) => !v)}>
-                        {show ? "Hide" : "Show"}
-                      </Button>
-                    </div>
-                  </Field>
-                  {error && <SignInNotice tone="error">{error}</SignInNotice>}
-                  <div className="flex items-center gap-3">
-                    <Button type="submit" disabled={busy}>
-                      {busy ? "Signing in…" : "Sign in"}
-                    </Button>
-                    <span style={{ fontSize: 11.5, color: C.dim }}>
-                      First sign-in? Change the password in My Profile → Account.
-                    </span>
-                  </div>
-                </form>
-                <div style={{ marginTop: 12, textAlign: "right" }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForgot(true);
-                      setError("");
-                    }}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      minHeight: 36,
-                      background: "none",
-                      border: "none",
-                      padding: "0 2px",
-                      fontFamily: font,
-                      fontSize: 12.5,
-                      color: C.navy,
-                      textDecoration: "underline",
-                      textUnderlineOffset: 3,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Forgot your password?
-                  </button>
+            <form
+              method="post"
+              className="flex flex-col gap-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                // Read the fields at submit time so a password manager's
+                // autofill is accepted even when it did not fire input events.
+                void submit(
+                  emailRef.current?.value ?? email,
+                  passwordRef.current?.value ?? password,
+                );
+              }}
+            >
+              <Field text="Email">
+                <input
+                  ref={emailRef}
+                  type="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setError(""); }}
+                  placeholder="school@depedurdaneta.gov.ph"
+                  style={control}
+                />
+              </Field>
+              <Field text="Password">
+                <div className="flex gap-2">
+                  <input
+                    ref={passwordRef}
+                    type={show ? "text" : "password"}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                    placeholder="••••••••"
+                    style={control}
+                  />
+                  <Button small tone="ghost" type="button" onClick={() => setShow((v) => !v)}>
+                    {show ? "Hide" : "Show"}
+                  </Button>
                 </div>
-              </>
-            )}
+              </Field>
+              {error && <SignInNotice tone="error">{error}</SignInNotice>}
+              <div className="flex items-center gap-3">
+                <Button type="submit" disabled={busy}>
+                  {busy ? "Signing in…" : "Sign in"}
+                </Button>
+                <span style={{ fontSize: 11.5, color: C.dim }}>
+                  First sign-in? Change the password in My Profile → Account.
+                </span>
+              </div>
+            </form>
+            <AccountHelp />
           </Card>
 
           <p style={{ fontSize: 11.5, color: C.dim, lineHeight: 1.6 }}>
@@ -921,8 +786,8 @@ function AccountOnHold({ access }: { access: Access }) {
       <Card title="This account is on hold">
         <p style={{ fontSize: 13.5, color: C.sub, lineHeight: 1.65 }}>
           The Division Office has put <strong style={{ color: C.text }}>{access.email}</strong> on hold, so this school's
-          records are read-only for now. Nothing has been deleted — ask the SBFP coordinator to lift the hold and your
-          work will be back.
+          records are read-only for now. Nothing has been deleted — contact the Technical Assistant of the
+          School-Based Feeding Program to lift the hold and your work will be back.
         </p>
         <div className="mt-5 flex items-center gap-3 flex-wrap">
           <UserButton redirectTo="/" />
@@ -946,7 +811,8 @@ function NoAccountNotice({ access }: { access: Access }) {
         ) : (
           <>
             You are signed in as <strong style={{ color: C.text }}>{access.email}</strong>, but no School Portal account
-            has been issued for that email address. Sign in below with the account the Division Office gave your school.
+            has been issued for that email address. Sign in below with the account the Division Office gave your school,
+            or contact the Technical Assistant of the School-Based Feeding Program for help.
           </>
         )}
       </p>
@@ -1330,7 +1196,7 @@ function AccountCard({ profile }: { profile: TeacherProfile }) {
         <div style={{ fontSize: 13.5, fontWeight: 600, color: C.text }}>Change your password</div>
         <p style={{ fontSize: 12, color: C.dim, marginTop: 4, lineHeight: 1.55 }}>
           {needsCurrent
-            ? "Choose something only you know. If you forget it, the Division Office can issue a new temporary one."
+            ? "Choose something only you know. If you forget it, contact the Technical Assistant of the School-Based Feeding Program for a new temporary one."
             : "You are still using the temporary password the Division Office gave you — replace it with your own."}
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">

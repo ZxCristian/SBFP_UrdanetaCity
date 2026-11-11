@@ -517,13 +517,18 @@ export interface RequestResetInput {
  * Division Office or a School Portal account.
  *
  * Deliberately open (no session): the person using it cannot sign in. The answer
- * is the same whether or not the address holds an account — both sign-in screens
- * show a neutral "if that address holds the account…" confirmation either way,
+ * is the same whether or not the address holds an account — the sign-in screen
+ * shows a neutral "if that address holds the account…" confirmation either way,
  * so this cannot be used to find out which addresses exist.
  *
- * `previewUrl` exists only on the in-memory preview database, where no mail key
- * is configured: it lets the flow be completed while building the app. A
- * deployed database never returns it.
+ * A delivery failure is different: the Division Office must be told that no
+ * message went out, and why, instead of seeing a false "on its way" confirmation.
+ * `reason` is limited to safe transport states; it never reveals whether the
+ * address exists.
+ *
+ * `previewUrl` exists only on the in-memory preview database, where no mail
+ * credentials are configured: it lets the flow be completed while building the
+ * app. A deployed database never returns it.
  */
 export const requestPasswordReset = createServerFn({ method: "POST" })
   .validator((input: RequestResetInput) => input)
@@ -534,23 +539,63 @@ export const requestPasswordReset = createServerFn({ method: "POST" })
     const { buildResetUrl, emailConfigured, sendPasswordResetEmail } = await import(
       "./email.server"
     );
-    const sql = await getSql();
-    const reset = await createPasswordReset(sql, data.email);
     const configured = emailConfigured();
+    // There is no point minting a token that cannot be delivered. The one
+    // exception is the in-memory preview database, where the reset link can be
+    // opened from the screen itself while the app is being built. It also keeps
+    // a deployment without mail credentials from failing on the account query
+    // and leaving the Division Office with a vague "try again" message.
+    if (!configured && dbSource !== "pglite") {
+      return {
+        ok: true as const,
+        configured: false,
+        delivered: false,
+        reason: "not_configured" as const,
+        previewUrl: null,
+      };
+    }
+
+    const sql = await getSql();
+    let reset: Awaited<ReturnType<typeof createPasswordReset>>;
+    try {
+      reset = await createPasswordReset(sql, data.email);
+    } catch (err) {
+      console.error("[recovery] could not read the account store", err);
+      return {
+        ok: true as const,
+        configured,
+        delivered: false,
+        reason: "unavailable" as const,
+        previewUrl: null,
+      };
+    }
 
     if (!reset) {
-      return { ok: true as const, configured, delivered: false, previewUrl: null };
+      // No account, or the one-per-minute throttle. Keep the answer neutral.
+      return {
+        ok: true as const,
+        configured,
+        delivered: false,
+        reason: configured ? null : ("not_configured" as const),
+        previewUrl: null,
+      };
     }
 
     const url = buildResetUrl(reset.token, reset.role);
-    const delivered = await sendPasswordResetEmail({
+    const delivery = await sendPasswordResetEmail({
       to: reset.email,
       url,
       expiresMinutes: RESET_LINK_MINUTES,
       role: reset.role,
     });
     const previewUrl = dbSource === "pglite" ? url : null;
-    return { ok: true as const, configured, delivered, previewUrl };
+    return {
+      ok: true as const,
+      configured,
+      delivered: delivery.delivered,
+      reason: delivery.reason ?? null,
+      previewUrl,
+    };
   });
 
 export interface ResetPasswordWithTokenInput {

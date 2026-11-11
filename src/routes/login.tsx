@@ -693,8 +693,10 @@ function SignInForm({
  *
  * The confirmation is deliberately neutral — the same words whether or not the
  * address holds the Division Office account — so this form cannot be used to
- * find out which address it is. The server sends at most one link a minute and
- * each new link replaces the previous one.
+ * find out which address it is. A transport failure is reported separately, so
+ * the Division Office is never told a link went out when the provider rejected
+ * it. The server sends at most one link a minute and each new link replaces the
+ * previous one.
  */
 function ForgotPasswordForm({
   initialEmail,
@@ -708,6 +710,8 @@ function ForgotPasswordForm({
   const [error, setError] = useState("");
   const [sent, setSent] = useState<{
     configured: boolean;
+    delivered: boolean;
+    reason: "not_configured" | "provider_rejected" | "network_error" | "unavailable" | null;
     previewUrl: string | null;
   } | null>(null);
 
@@ -722,7 +726,12 @@ function ForgotPasswordForm({
     setBusy(true);
     try {
       const result = await requestPasswordReset({ data: { email: cleanEmail } });
-      setSent({ configured: result.configured, previewUrl: result.previewUrl });
+      setSent({
+        configured: result.configured,
+        delivered: result.delivered,
+        reason: result.reason,
+        previewUrl: result.previewUrl,
+      });
     } catch {
       setError("The reset link could not be requested just now. Try again in a moment.");
     } finally {
@@ -751,20 +760,39 @@ function ForgotPasswordForm({
 
       {error && <Notice tone="error">{error}</Notice>}
 
-      {sent && (
+      {sent?.delivered && (
+        <Notice tone="info">
+          A reset link is on its way to{" "}
+          <strong style={{ color: T.text }}>{email.trim().toLowerCase()}</strong>. It works once
+          and stops working after 30 minutes. Check spam if it does not arrive.
+        </Notice>
+      )}
+
+      {sent && !sent.delivered && sent.reason === "not_configured" && (
+        <Notice tone="error">
+          Email delivery is not configured, so no recovery message was sent. Add{" "}
+          <strong style={{ color: T.text }}>MAILJET_API_KEY</strong>,{" "}
+          <strong style={{ color: T.text }}>MAILJET_SECRET_KEY</strong>, and a verified{" "}
+          <strong style={{ color: T.text }}>MAILJET_FROM</strong> in Settings → Environment, then
+          redeploy.
+        </Notice>
+      )}
+
+      {sent && !sent.delivered && sent.reason && sent.reason !== "not_configured" && (
+        <Notice tone="error">
+          {sent.reason === "provider_rejected"
+            ? "The mail provider refused the recovery message. Verify the sender in Mailjet, set MAILJET_FROM to that verified address, and check the Mailjet account allows this recipient."
+            : sent.reason === "unavailable"
+              ? "Account recovery is temporarily unavailable because the account store could not be read. Try again in a moment."
+              : "The mail provider could not be reached, so the recovery message was not sent. Try again in a moment."}
+        </Notice>
+      )}
+
+      {sent && !sent.delivered && !sent.reason && (
         <Notice tone="info">
           If <strong style={{ color: T.text }}>{email.trim().toLowerCase()}</strong> holds the
           Division Office account, a reset link is on its way. It works once and stops working
           after 30 minutes.
-        </Notice>
-      )}
-
-      {sent && !sent.configured && (
-        <Notice tone="error">
-          This deployment has no email sender set up yet, so no message could actually go out.
-          Add <strong style={{ color: T.text }}>RESEND_API_KEY</strong> and{" "}
-          <strong style={{ color: T.text }}>RESEND_FROM</strong> in Settings → Environment, then
-          redeploy.
         </Notice>
       )}
 
