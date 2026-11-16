@@ -12,9 +12,11 @@
  * bundle to redirect. Once the session resolves, an administrator's console
  * takes over, and a teacher is sent to `/`.
  */
+import { useEffect } from "react";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import SbfpApp from "@/sbfp-app";
 import { useAccess } from "@/lib/use-access";
+import { prewarmExcelExport } from "@/lib/prewarm-export";
 import { LoginScreen } from "./login";
 
 export const Route = createFileRoute("/Admin")({
@@ -34,7 +36,13 @@ export const Route = createFileRoute("/Admin")({
 function Admin() {
   const access = useAccess();
 
-  if (access.status === "admin") return <SbfpApp />;
+  if (access.status === "admin") return <WarmedSbfpApp />;
   if (access.status === "teacher") return <Navigate to="/" />;
   return <LoginScreen access={access} />;
+}
+
+/** The console, with the Excel-export chunk warmed for the first export. */
+function WarmedSbfpApp() {
+  useEffect(prewarmExcelExport, []);
+  return <SbfpApp />;
 }

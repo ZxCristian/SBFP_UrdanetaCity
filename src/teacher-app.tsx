@@ -703,7 +703,9 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
 
           <div style={{ fontSize: 12, color: C.dim, marginTop: 18 }}>
             One account per school, for every school in the division.{" "}
-            
+            <a href="/Admin" style={{ color: C.navy, fontWeight: 600, textDecoration: "none" }}>
+              Division Office sign in →
+            </a>
           </div>
         </div>
 
@@ -1685,6 +1687,7 @@ function MyRecords({
 }) {
   const store = useTeacherStore();
   const [period, setPeriod] = useState<Period | "All">("All");
+  const [cohort, setCohort] = useState<"All" | "Regular" | "SPED">("All");
   const [q, setQ] = useState("");
   /** The record the teacher asked to delete — nothing is removed until she confirms. */
   const [pendingDelete, setPendingDelete] = useState<Student | null>(null);
@@ -1695,9 +1698,14 @@ function MyRecords({
     () => sortRecords(store.records.filter(r => r.schoolId === school.id)),
     [store.records, school.id],
   );
+  // Cohort buttons mirror the Summary Table: only Urdaneta 1 Central splits its
+  // learners into Regular and SPED grade levels, so other schools don't see them.
+  const isSpedSchool = school.name === SPED_SCHOOL_NAME;
+  const isSpedGrade = (g: string) => g.startsWith("SPED");
   const needle = q.trim().toLowerCase();
   const visible = mine.filter(r =>
     (period === "All" || r.period === period) &&
+    (!isSpedSchool || cohort === "All" ? true : cohort === "SPED" ? isSpedGrade(r.gradeLevel) : !isSpedGrade(r.gradeLevel)) &&
     (!needle || `${r.name} ${r.gradeLevel} ${r.bmiStatus} ${r.hfaStatus}`.toLowerCase().includes(needle)),
   );
 
@@ -1754,6 +1762,7 @@ function MyRecords({
           <h1 className="text-lg font-semibold" style={{ color: C.text }}>My Records</h1>
           <p className="text-xs mt-0.5" style={{ color: C.dim }}>
             {school.name} · SBFP Form 1A · sorted Kinder → Grade 6 · {uniqueCount(mine)} students · {mine.length} period records
+            {isSpedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}
           </p>
           <p className="text-[11px] mt-1" style={{ color: C.sub }}>
             School Head / Principal:{" "}
@@ -1810,6 +1819,22 @@ function MyRecords({
             {p}
           </button>
         ))}
+        {isSpedSchool &&
+          (["All", "Regular", "SPED"] as const).map(c => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCohort(c)}
+              className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
+              style={
+                cohort === c
+                  ? { background: C.navySoft, color: C.navy, borderColor: C.navy + "40" }
+                  : { background: C.surface, color: C.dim, borderColor: C.border }
+              }
+            >
+              {c}
+            </button>
+          ))}
       </div>
 
       {exportError && (

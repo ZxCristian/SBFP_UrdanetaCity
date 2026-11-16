@@ -9,8 +9,10 @@
  * carries, so a school account gets its own warm portal theme instead of the
  * Division Office's console sign-in page.
  */
+import { useEffect } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import TeacherApp from "@/teacher-app";
+import { prewarmExcelExport } from "@/lib/prewarm-export";
 
 export interface HomeSearch {
   reset?: string;
@@ -34,5 +36,7 @@ export const Route = createFileRoute("/")({
 
 function Home() {
   const { reset } = Route.useSearch();
+  // Form 1/Form 2 exports share the Excel chunk — warm it while the portal idles.
+  useEffect(prewarmExcelExport, []);
   return <TeacherApp resetToken={reset} />;
 }

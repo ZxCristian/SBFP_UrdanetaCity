@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Self-hosted faces (formerly a render-blocking Google Fonts stylesheet in head — see scripts/vendor-fonts.mjs). */
+@import "./styles/fonts.css";
 
 /*
  * Mobile / touch refinements

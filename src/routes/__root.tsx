@@ -22,12 +22,10 @@ export const Route = createRootRoute({
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/__grok/manifest.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap",
-      },
+      // Fonts are self-hosted (scripts/vendor-fonts.mjs) and @font-face-declared
+      // in src/styles/fonts.css — no third-party stylesheet blocks first paint.
+      { rel: "preload", as: "font", type: "font/woff2", crossOrigin: "anonymous", href: "/fonts/outfit-400-latin.woff2" },
+      { rel: "preload", as: "font", type: "font/woff2", crossOrigin: "anonymous", href: "/fonts/outfit-400-latin-ext.woff2" },
     ],
   }),
   component: () => (
