@@ -36,20 +36,20 @@ import {
   FORM_DETAIL_FIELDS,
   HFA_STATUSES,
   PERIODS,
-  SPED_SCHOOL_NAME,
   ageLabel,
   calcBMI,
   classifyBMI,
   classifyBeneficiary,
   classifyHFA,
   computeAge,
-  countsAsPregnantOrYoung,
   defaultsToNotPregnant,
   formatDateMDY,
   getGrades,
+  isSpedSchool,
   mustNotBePregnant,
   shortDate,
   sortRecords,
+  tallyRecords,
   uniqueCount,
   uniqueStudents,
 } from "@/lib/sbfp-domain";
@@ -70,12 +70,9 @@ import type {
   YesNo,
 } from "@/lib/sbfp-domain";
 
-// ── Domain ────────────────────────────────────────────────────────────────────
 // Types, the period/status lists and the WHO classification live in
 // `@/lib/sbfp-domain` so the school portal can import them without pulling
-// this console (and its screens) into the teacher route's bundle. The
-// re-export keeps this module's public surface unchanged.
-export * from "@/lib/sbfp-domain";
+// this console (and its screens) into the teacher route's bundle.
 type View = "district"|"feedback"|"schools"|"accounts"|"years"|"dashboard"|"records"|"entry"|"table"|"analytics"|"trash";
 
 /** Where the browser remembers feedback it has already shown the Division Office. */
@@ -1910,7 +1907,7 @@ function TrashPanel({ trash, schools }: { trash: TrashedRecord[]; schools: Schoo
 function SummaryTable({ students, school, activeSy }: { students:Student[]; school:School; activeSy:string }) {
   const t = useT();
   const [period, setPeriod] = useState<Period>("Endline");
-  const isSpedSchool = school.name === SPED_SCHOOL_NAME;
+  const spedSchool = isSpedSchool(school);
   const [cohort, setCohort] = useState<"All"|"Regular"|"SPED">("All");
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -1921,8 +1918,8 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
   // In "All Students" the SPED school counts each SPED grade together with its
   // regular grade (Kinder + SPED Kinder, Grade 1 + SPED Grade 1, …), so the table
   // shows one row per grade level; the Regular / SPED filters keep rows separate.
-  const mergeSped = isSpedSchool && cohort === "All";
-  const grades = !isSpedSchool || cohort === "All"
+  const mergeSped = spedSchool && cohort === "All";
+  const grades = !spedSchool || cohort === "All"
     ? (mergeSped ? allGrades.filter(g => !isSpedGrade(g)) : allGrades)
     : cohort === "SPED"
       ? allGrades.filter(isSpedGrade)
@@ -1930,7 +1927,7 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
 
   const f = students.filter(s =>
     s.period === period &&
-    (!isSpedSchool || cohort === "All"
+    (!spedSchool || cohort === "All"
       ? true
       : cohort === "SPED" ? isSpedGrade(s.gradeLevel) : !isSpedGrade(s.gradeLevel))
   );
@@ -1938,36 +1935,26 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
   /** Whether a student's grade belongs in this row — merged rows also take the SPED grade. */
   const inGrade = (g: string, grade: GradeLevel) =>
     mergeSped ? g.replace(/^SPED /, "") === grade : g === grade;
-  const cntBMI = (grade:GradeLevel|null, sex:Sex|null, st:BMIStatus) =>
-    f.filter(s=>(grade===null||inGrade(s.gradeLevel,grade))&&(sex===null||s.sex===sex)&&s.bmiStatus===st).length;
-  const cntHFA = (grade:GradeLevel|null, sex:Sex|null, st:HFAStatus) =>
-    f.filter(s=>(grade===null||inGrade(s.gradeLevel,grade))&&(sex===null||s.sex===sex)&&s.hfaStatus===st).length;
-  const cntFlag = (grade:GradeLevel|null, sex:Sex|null, field:keyof Student, val:string) =>
-    f.filter(s=>(grade===null||inGrade(s.gradeLevel,grade))&&(sex===null||s.sex===sex)&&s[field]===val).length;
   const sx = (lbl:"M"|"F"|"Total"): Sex|null => lbl==="Total"?null:lbl;
 
   /**
    * The rows shown below, flattened for the Excel export. Built from the same
-   * cnt* helpers as the table, so the file always matches what is on screen —
+   * counts as the table, so the file always matches what is on screen —
    * including which grade levels the SPED cohort merge folds together.
    */
   const summaryMatrix = (): SummaryMatrixRow[] => {
     const perGrade = (grade: GradeLevel|null, label: string): SummaryMatrixRow[] =>
       (["M","F","Total"] as const).map(lbl => {
-        const s = sx(lbl);
+        const counts = tallyRecords(f, grade, sx(lbl), inGrade);
         return {
           grade: label,
           sex: lbl,
-          bmi: BMI_STATUSES.map(st=>cntBMI(grade,s,st)),
-          hfa: HFA_STATUSES.map(st=>cntHFA(grade,s,st)),
-          pregnantYoung: f.filter(st =>
-            (grade===null||inGrade(st.gradeLevel,grade)) &&
-            (s===null||st.sex===s) &&
-            countsAsPregnantOrYoung(st),
-          ).length,
-          dewormed: cntFlag(grade,s,"dewormed","Yes"),
-          fourPs: cntFlag(grade,s,"fourPs","Yes"),
-          sbfp: cntFlag(grade,s,"sbfpPreviousYears","Yes"),
+          bmi: counts.bmi,
+          hfa: counts.hfa,
+          pregnantYoung: counts.pregnantYoung,
+          dewormed: counts.dewormed,
+          fourPs: counts.fourPs,
+          sbfp: counts.sbfp,
           atRisk: manualTotal(extras, grades, grade, lbl, "atRisk"),
           ips: manualTotal(extras, grades, grade, lbl, "ips"),
         };
@@ -1983,11 +1970,11 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
           <h1 className="text-lg font-semibold" style={{ color:t.text }}>Summary Table</h1>
           <p className="text-xs mt-0.5" style={{ color:t.dim }}>
             {school.name} — SY {formatSchoolYear(activeSy)}
-            {isSpedSchool && (cohort === "All" ? " · SPED merged into grade levels" : ` · ${cohort} only`)}
+            {spedSchool && (cohort === "All" ? " · SPED merged into grade levels" : ` · ${cohort} only`)}
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          {isSpedSchool && (
+          {spedSchool && (
             <div className="flex gap-1.5">
               {(["All","Regular","SPED"] as const).map(c => (
                 <button key={c} onClick={() => setCohort(c)} className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
@@ -2063,16 +2050,16 @@ function SummaryTable({ students, school, activeSy }: { students:Student[]; scho
 // ── Analytics ─────────────────────────────────────────────────────────────────
 function Analytics({ students, school }: { students:Student[]; school:School }) {
   const t = useT();
-  const isSpedSchool = school.name === SPED_SCHOOL_NAME;
+  const spedSchool = isSpedSchool(school);
   const [cohort, setCohort] = useState<"All"|"Regular"|"SPED">("All");
   const isSpedGrade = (g: string) => g.startsWith("SPED");
 
   const filtered = useMemo(() => {
-    if (!isSpedSchool || cohort === "All") return students;
+    if (!spedSchool || cohort === "All") return students;
     return students.filter(s =>
       cohort === "SPED" ? isSpedGrade(s.gradeLevel) : !isSpedGrade(s.gradeLevel)
     );
-  }, [students, cohort, isSpedSchool]);
+  }, [students, cohort, spedSchool]);
 
   const uniqAll = uniqueStudents(filtered);
   const periodData = PERIODS.map(p => {
@@ -2095,10 +2082,10 @@ function Analytics({ students, school }: { students:Student[]; school:School }) 
           <h1 className="text-lg font-semibold" style={{ color:t.text }}>Analytics</h1>
           <p className="text-xs mt-0.5" style={{ color:t.dim }}>
             {school.name} · {uniqAll.length} students · {filtered.length} period records
-            {isSpedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}
+            {spedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}
           </p>
         </div>
-        {isSpedSchool && (
+        {spedSchool && (
           <div className="flex gap-1.5">
             {(["All","Regular","SPED"] as const).map(c => (
               <button key={c} onClick={() => setCohort(c)} className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"

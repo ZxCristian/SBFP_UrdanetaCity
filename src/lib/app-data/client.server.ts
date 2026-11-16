@@ -73,14 +73,6 @@ function inboundContext(): InboundContext {
   };
 }
 
-export function resolveGateAppDataBase(): string | null {
-  return inboundContext().connectorsBase;
-}
-
-export function getConnectorAccessToken(): string | null {
-  return inboundContext().token;
-}
-
 export { isWorkspacePreview } from "../env.server.ts";
 
 // Digest of the last preview token the gate answered 401 for. The readiness

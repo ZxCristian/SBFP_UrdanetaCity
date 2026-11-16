@@ -46,10 +46,9 @@ export type CurrentUserState = {
  * redirecting on `user: null` alone bounces signed-in visitors to sign-in on
  * every hard reload:
  *
- *   import { RedirectToSignIn } from "@/lib/auth/gates";
  *   const { user, isPending } = useCurrentUserState();
  *   if (isPending) return null;              // still resolving — don't redirect yet
- *   if (!user) return <RedirectToSignIn />;  // definitely signed out
+ *   if (!user) return <Navigate to="/login" />;  // definitely signed out
  *
  * `authEnabled` is a module-level constant fixed at load, so the guarded hook
  * call keeps a stable hook order across every render of a given component.

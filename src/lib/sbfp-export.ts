@@ -1,76 +1,37 @@
 // SBFP Form 1A (.xlsx) export built on ExcelJS (Form 1A + Form 2) — real merges, styles and
 // embedded logo images (DepEd left, OK sa DepEd right), matching the printed form.
 import { Workbook, type Worksheet, type Cell } from "exceljs";
-import { uppercasePersonName, type SummaryMatrixRow } from "./sbfp-domain.ts";
+import {
+  FORM2_NOTE,
+  FORM2_SECONDARY,
+  formatDateMDY,
+  sortRecords,
+  uppercasePersonName,
+  type School,
+  type Student,
+  type SummaryMatrixRow,
+} from "./sbfp-domain.ts";
 import { currentSchoolYear } from "./sbfp-years.ts";
 
-// ── Shared form types (mirrors src/sbfp-app.tsx) ───────────────────────────────
-export type GradeLevel =
-  |"Kinder"|"Grade 1"|"Grade 2"|"Grade 3"|"Grade 4"|"Grade 5"|"Grade 6"
-  |"Grade 7"|"Grade 8"|"Grade 9"|"Grade 10"|"Grade 11"|"Grade 12"
-  |"SPED"|"SPED Kinder"|"SPED Grade 1"|"SPED Grade 2"|"SPED Grade 3"|"SPED Grade 4"|"SPED Grade 5"|"SPED Grade 6";
-export type Sex = "M"|"F";
-export type Period = "Baseline"|"Midline"|"Endline";
-export type BMIStatus = "Severely Wasted"|"Wasted"|"Normal"|"Overweight"|"Obese"|"";
-export type HFAStatus = "Severely Stunted"|"Stunted"|"Normal"|"Tall"|"";
-export type YesNo = "Yes"|"No"|"";
-
-export interface SchoolFormInfo {
-  name: string;
+// ── Shared form types ──────────────────────────────────────────────────────────
+export type {
+  BMIStatus,
+  GradeLevel,
+  HFAStatus,
+  Period,
+  Sex,
+  YesNo,
+} from "./sbfp-domain.ts";
+export type SchoolFormInfo = Omit<
+  School,
+  "id" | "type" | "dateStartFeeding" | "lastMileSchool"
+> & {
+  /** Archived exports build this block without a school id. */
   type: string;
-  division: string;
-  cityMunicipalityBarangay: string;
-  schoolIdNumber: string;
-  principal: string;
-  focalPerson: string;
-  /** SBFP Form 2 header: date the feeding starts (ISO YYYY-MM-DD). */
   dateStartFeeding?: string;
-  /** SBFP Form 2 header "Last Mile School" — "Yes" | "No" | "". */
   lastMileSchool?: string;
-}
-
-export interface StudentRecord {
-  id: string; schoolId: string; period: Period; sy: string;
-  name: string; sex: Sex|""; gradeLevel: GradeLevel|"";
-  dateOfBirth: string; dateOfWeighing: string;
-  ageYears: string; ageMonths: string;
-  weight: string; height: string; bmi: string;
-  bmiStatus: BMIStatus; hfaStatus: HFAStatus; nutritionalStatus: string;
-  classificationOfBeneficiary: "Primary"|"Secondary"|"";
-  pregnant: YesNo; hasYoungChildren: YesNo; dewormed: YesNo;
-  parentConsentMilk: YesNo; fourPs: YesNo; sbfpPreviousYears: YesNo;
-}
-
-// ── Sorting (Kinder → Grade 6, then name, then Baseline → Endline) ────────────
-const GRADE_ORDER: GradeLevel[] = [
-  "Kinder","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6",
-  "SPED Kinder","SPED Grade 1","SPED Grade 2","SPED Grade 3","SPED Grade 4","SPED Grade 5","SPED Grade 6",
-  "Grade 7","Grade 8","Grade 9","Grade 10","Grade 11","Grade 12","SPED",
-];
-const gradeRank = (g: string) => {
-  const i = GRADE_ORDER.indexOf(g as GradeLevel);
-  return i < 0 ? 99 : i;
 };
-const periodRank: Record<Period, number> = { Baseline: 0, Midline: 1, Endline: 2 };
-
-function sortRecords(list: StudentRecord[]): StudentRecord[] {
-  return [...list].sort((a, b) => {
-    const ga = gradeRank(a.gradeLevel);
-    const gb = gradeRank(b.gradeLevel);
-    if (ga !== gb) return ga - gb;
-    const name = a.name.localeCompare(b.name);
-    if (name !== 0) return name;
-    return (periodRank[a.period] ?? 9) - (periodRank[b.period] ?? 9);
-  });
-}
-
-/** Format date YYYY-MM-DD → MM/DD/YYYY for the SBFP form */
-function formatDateMDY(iso: string): string {
-  if (!iso) return "";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return iso;
-  return `${m[2]}/${m[3]}/${m[1]}`;
-}
+export type StudentRecord = Student;
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -321,20 +282,9 @@ const C_DATE = C_PREG + 7;
 const C_LAST = C_DATE;
 
 /** The "No. of Secondary Targets" columns, merged down over the header rows. */
-const SECONDARY_HEADERS: [number, string][] = [
-  [C_PREG, "No. of Adolescent Pregnant Learners/ Learners with 0-1 year-old child/ren"],
-  [C_ATRISK, "No. of Pupils at risk of dropping out"],
-  [C_STUNTED, "No. of Stunted Learners"],
-  [C_IPS, "No. of Indigenous Peoples (IPs)"],
-  [C_DEWORMED, "No. of Learners Dewormed"],
-  [C_4PS, "No. of 4Ps Beneficiaries"],
-  [C_REPEATERS, "No. of Pupils who are beneficiaries in previous years (Repeaters)"],
-  [C_DATE, "Date Feeding Started/Ended"],
-];
-const FORM2_NOTE =
-  "Note: This form shall be prepared by the school before the start of feeding and " +
-  "after feeding, to be compiled by the SDO, and for the final compilation by the RO, " +
-  "for submission to DepEd BLSS-SHD.";
+const SECONDARY_HEADERS: [number, string][] = FORM2_SECONDARY.map(
+  (label, index): [number, string] => [C_PREG + index, label],
+);
 
 /** Sum the counts of the named statuses out of a status list + parallel counts. */
 function countFor(counts: number[], statuses: string[], wanted: string[]): number {

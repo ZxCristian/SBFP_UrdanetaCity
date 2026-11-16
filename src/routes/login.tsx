@@ -16,19 +16,17 @@
  */
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { authClient } from "@/lib/auth/client";
-import { signInErrorMessage } from "@/lib/auth/sign-in-error";
 import { useAccess } from "@/lib/use-access";
+import { useEmailSignIn } from "@/lib/auth/use-email-sign-in";
+import { usePasswordReset } from "@/lib/auth/use-password-reset";
 import {
   bootstrapAdminAccount,
   claimAdminAccount,
   fetchBootstrapState,
   requestPasswordReset,
-  resetPasswordWithToken,
 } from "@/lib/sbfp-api";
 import { useStripCredentialQuery } from "@/lib/credential-url";
 import { MIN_PASSWORD_LENGTH } from "@/lib/sbfp-credentials";
-import { syncWorkspace } from "@/lib/sbfp-store";
 
 /**
  * `?reset=<token>` is the address the password-reset email carries. It is read
@@ -144,36 +142,6 @@ function Notice({ tone, children }: { tone: "error" | "info"; children: ReactNod
       {children}
     </p>
   );
-}
-
-/** Sign in with the credentials the Division Office holds. */
-function useEmailSignIn() {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const signIn = async (email: string, password: string): Promise<boolean> => {
-    setBusy(true);
-    setError("");
-    try {
-      const { error: authError } = await authClient.signIn.email({ email, password });
-      if (authError) {
-        setError(signInErrorMessage(authError));
-        return false;
-      }
-      // Wait for this identity's workspace before handing the button back: the
-      // console can then open with its data already on screen instead of the
-      // form flashing "no account" while the first read is still in flight.
-      await syncWorkspace(email.trim().toLowerCase(), true);
-      return true;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed.");
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return { busy, error, setError, signIn };
 }
 
 function AdminLogin() {
@@ -864,28 +832,12 @@ function ResetPasswordForm({
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { busy, error, submit } = usePasswordReset(token);
 
-  const submit = async (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setError("");
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for the new password.`);
-      return;
-    }
-    if (password !== confirm) {
-      setError("The two passwords do not match.");
-      return;
-    }
-    setBusy(true);
-    const result = await resetPasswordWithToken({ data: { token, password } });
-    setBusy(false);
-    if (!result.ok) {
-      setError(result.message);
-      return;
-    }
-    onDone(result.email);
+    const result = await submit(password, confirm);
+    if (result) onDone(result.email);
   };
 
   const showButton = (
@@ -909,7 +861,7 @@ function ResetPasswordForm({
   );
 
   return (
-    <form method="post" className="flex flex-col gap-3.5" onSubmit={submit}>
+    <form method="post" className="flex flex-col gap-3.5" onSubmit={handleSubmit}>
       <Field text="New password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}>
         <div className="flex gap-2">
           <input

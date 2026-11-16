@@ -27,19 +27,19 @@ import {
   FEEDBACK_CATEGORIES,
   HFA_STATUSES,
   PERIODS,
-  SPED_SCHOOL_NAME,
   calcBMI,
   classifyBMI,
   classifyBeneficiary,
   classifyHFA,
   computeAge,
-  countsAsPregnantOrYoung,
   defaultsToNotPregnant,
   formatDateMDY,
   getGrades,
+  isSpedSchool,
   mustNotBePregnant,
   shortDate,
   sortRecords,
+  tallyRecords,
   uniqueCount,
 } from "@/lib/sbfp-shared";
 // Type-only: erased at build time, so ExcelJS stays out of the initial bundle.
@@ -73,19 +73,18 @@ import {
 } from "@/lib/sbfp-store";
 import type { TeacherProfile } from "@/lib/sbfp-store";
 import { useStripCredentialQuery } from "@/lib/credential-url";
-import { syncWorkspace } from "@/lib/sbfp-store";
 import { useAccess } from "@/lib/use-access";
 import type { Access } from "@/lib/use-access";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Form2Sheet } from "@/components/form2-sheet";
 import { manualTotal, useForm2Extras } from "@/lib/use-form2-extras";
 import { UserButton } from "@/lib/auth/gates";
-import { authClient, signOut } from "@/lib/auth/client";
-import { signInErrorMessage } from "@/lib/auth/sign-in-error";
+import { signOut } from "@/lib/auth/client";
+import { useEmailSignIn } from "@/lib/auth/use-email-sign-in";
+import { usePasswordReset } from "@/lib/auth/use-password-reset";
 import {
   changeOwnPassword,
   lookupPreviousBeneficiary,
-  resetPasswordWithToken,
 } from "@/lib/sbfp-api";
 import { MIN_PASSWORD_LENGTH } from "@/lib/sbfp-credentials";
 import { learnerProblem } from "@/lib/sbfp-validation";
@@ -454,34 +453,15 @@ function TeacherResetPassword({ token }: { token: string }) {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [done, setDone] = useState<{ email: string; role: "admin" | "teacher" } | null>(null);
+  const { busy, error, submit } = usePasswordReset(token, {
+    unexpectedError: "That reset link is invalid or has expired. Request a new one.",
+  });
 
-  const submit = async (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    setError("");
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      setError(`Use at least ${MIN_PASSWORD_LENGTH} characters for the new password.`);
-      return;
-    }
-    if (password !== confirm) {
-      setError("The two passwords do not match.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await resetPasswordWithToken({ data: { token, password } });
-      if (!result.ok) {
-        setError(result.message);
-        return;
-      }
-      setDone({ email: result.email, role: result.role });
-    } catch {
-      setError("That reset link is invalid or has expired. Request a new one.");
-    } finally {
-      setBusy(false);
-    }
+    const result = await submit(password, confirm);
+    if (result) setDone(result);
   };
 
   const destination = done?.role === "admin" ? "/login" : "/";
@@ -542,7 +522,7 @@ function TeacherResetPassword({ token }: { token: string }) {
               </p>
             </div>
           ) : (
-            <form method="post" className="flex flex-col gap-4" onSubmit={submit}>
+            <form method="post" className="flex flex-col gap-4" onSubmit={handleSubmit}>
               <Field text="New password" hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}>
                 <div className="flex gap-2">
                   <input
@@ -594,8 +574,11 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { busy, error, setError, signIn } = useEmailSignIn({
+    requireCredentials: true,
+    invalidCredentialsHint:
+      "Check the details, or contact the Technical Assistant of the School-Based Feeding Program for a new temporary password.",
+  });
   // Credential inputs have no `name` on purpose: a native submission before
   // hydration would otherwise put the password into the URL. `method="post"`
   // keeps that fallback out of the query string too.
@@ -604,38 +587,10 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
   useStripCredentialQuery();
 
   const submit = async (emailValue: string, passwordValue: string) => {
-    setError("");
     // Keep the controlled fields in step with an autofilled submission.
     setEmail(emailValue);
     setPassword(passwordValue);
-    if (!emailValue.trim() || !passwordValue) {
-      setError("Enter the email and password the Division Office gave you.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const { error: authError } = await authClient.signIn.email({
-        email: emailValue.trim(),
-        password: passwordValue,
-      });
-      if (authError) {
-        const message = signInErrorMessage(authError);
-        setError(
-          message === "That email and password do not match an account."
-            ? `${message} Check the details, or contact the Technical Assistant of the School-Based Feeding Program for a new temporary password.`
-            : message,
-        );
-        return;
-      }
-      // Wait for this identity's workspace before releasing the button: the
-      // portal can then open on the school's data instead of flashing the form
-      // again while the first read is still in flight.
-      await syncWorkspace(emailValue.trim().toLowerCase(), true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed.");
-    } finally {
-      setBusy(false);
-    }
+    await signIn(emailValue.trim(), passwordValue);
   };
 
   return (
@@ -1700,12 +1655,12 @@ function MyRecords({
   );
   // Cohort buttons mirror the Summary Table: only Urdaneta 1 Central splits its
   // learners into Regular and SPED grade levels, so other schools don't see them.
-  const isSpedSchool = school.name === SPED_SCHOOL_NAME;
+  const spedSchool = isSpedSchool(school);
   const isSpedGrade = (g: string) => g.startsWith("SPED");
   const needle = q.trim().toLowerCase();
   const visible = mine.filter(r =>
     (period === "All" || r.period === period) &&
-    (!isSpedSchool || cohort === "All" ? true : cohort === "SPED" ? isSpedGrade(r.gradeLevel) : !isSpedGrade(r.gradeLevel)) &&
+    (!spedSchool || cohort === "All" ? true : cohort === "SPED" ? isSpedGrade(r.gradeLevel) : !isSpedGrade(r.gradeLevel)) &&
     (!needle || `${r.name} ${r.gradeLevel} ${r.bmiStatus} ${r.hfaStatus}`.toLowerCase().includes(needle)),
   );
 
@@ -1762,7 +1717,7 @@ function MyRecords({
           <h1 className="text-lg font-semibold" style={{ color: C.text }}>My Records</h1>
           <p className="text-xs mt-0.5" style={{ color: C.dim }}>
             {school.name} · SBFP Form 1A · sorted Kinder → Grade 6 · {uniqueCount(mine)} students · {mine.length} period records
-            {isSpedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}
+            {spedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}
           </p>
           <p className="text-[11px] mt-1" style={{ color: C.sub }}>
             School Head / Principal:{" "}
@@ -1819,7 +1774,7 @@ function MyRecords({
             {p}
           </button>
         ))}
-        {isSpedSchool &&
+        {spedSchool &&
           (["All", "Regular", "SPED"] as const).map(c => (
             <button
               key={c}
@@ -2188,17 +2143,6 @@ function FeedbackScreen({ profile, school }: { profile: TeacherProfile; school: 
 
 // ── Summary Table — the school's SBFP numbers, and Form 2 ──────────────────
 
-/** Every figure for one grade/sex row, computed once in a single pass. */
-interface Tally {
-  bmi: number[];
-  hfa: number[];
-  learners: number;
-  fourPs: number;
-  sbfp: number;
-  dewormed: number;
-  pregnantYoung: number;
-}
-
 function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void }) {
   const store = useTeacherStore();
   const [cohort, setCohort] = useState<"All" | "Regular" | "SPED">("All");
@@ -2208,14 +2152,14 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
   // just encoded Baseline should not land on an empty Endline table.
   const [chosenPeriod, setPeriod] = useState<Period | null>(null);
 
-  const isSpedSchool = school.name === SPED_SCHOOL_NAME;
+  const spedSchool = isSpedSchool(school);
   const isSpedGrade = (g: string) => g.startsWith("SPED");
   const allGrades = getGrades(school);
   // Urdaneta 1 Central is the division's SPED school: "All Students" folds SPED
   // Kinder into Kinder, exactly as the district's own Summary Table does, so a
   // school's figures and the district's agree for the same records.
-  const mergeSped = isSpedSchool && cohort === "All";
-  const grades = !isSpedSchool || cohort === "All"
+  const mergeSped = spedSchool && cohort === "All";
+  const grades = !spedSchool || cohort === "All"
     ? (mergeSped ? allGrades.filter(g => !isSpedGrade(g)) : allGrades)
     : cohort === "SPED"
       ? allGrades.filter(isSpedGrade)
@@ -2235,11 +2179,11 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
   const shown = useMemo(
     () => mine.filter(s =>
       s.period === period &&
-      (!isSpedSchool || cohort === "All"
+      (!spedSchool || cohort === "All"
         ? true
         : cohort === "SPED" ? isSpedGrade(s.gradeLevel) : !isSpedGrade(s.gradeLevel)),
     ),
-    [mine, period, isSpedSchool, cohort],
+    [mine, period, spedSchool, cohort],
   );
   const perPeriod = PERIODS.map(p => ({ p, n: mine.filter(r => r.period === p).length }));
 
@@ -2269,36 +2213,10 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
   /** A learner's grade belongs in this row — merged rows also take the SPED grade. */
   const inGrade = (g: string, grade: GradeLevel) => (mergeSped ? g.replace(/^SPED /, "") === grade : g === grade);
 
-  /**
-   * Every figure for one grade/sex row, in a single pass over this period.
-   * The previous version ran a separate `.filter` per cell — a few hundred
-   * passes over the same records every render, which is what made opening the
-   * table feel slow on a school with many records.
-   */
-  const tally = (grade: GradeLevel | null, sex: Sex | null): Tally => {
-    const out: Tally = {
-      bmi: BMI_STATUSES.map(() => 0), hfa: HFA_STATUSES.map(() => 0), learners: 0,
-      fourPs: 0, sbfp: 0, dewormed: 0, pregnantYoung: 0,
-    };
-    for (const s of rows) {
-      if (sex !== null && s.sex !== sex) continue;
-      if (grade !== null && !inGrade(s.gradeLevel, grade)) continue;
-      out.learners += 1;
-      const b = BMI_STATUSES.indexOf(s.bmiStatus);
-      if (b >= 0) out.bmi[b] += 1;
-      const h = HFA_STATUSES.indexOf(s.hfaStatus);
-      if (h >= 0) out.hfa[h] += 1;
-      if (s.fourPs === "Yes") out.fourPs += 1;
-      if (s.sbfpPreviousYears === "Yes") out.sbfp += 1;
-      if (s.dewormed === "Yes") out.dewormed += 1;
-      if (countsAsPregnantOrYoung(s)) out.pregnantYoung += 1;
-    }
-    return out;
-  };
   const sx = (lbl: "M" | "F" | "Total"): Sex | null => (lbl === "Total" ? null : lbl);
   /** Learners counted in the table but still missing one of the two WHO classes. */
   const unclassified = rows.filter(s => !s.bmiStatus || !s.hfaStatus).length;
-  const overall = tally(null, null);
+  const overall = tallyRecords(rows, null, null, inGrade);
 
   /**
    * The rows below, flattened for the Form 2 export — built from the same
@@ -2307,7 +2225,7 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
   const summaryMatrix = (): SummaryMatrixRow[] => {
     const perGrade = (grade: GradeLevel | null, text: string): SummaryMatrixRow[] =>
       (["M", "F", "Total"] as const).map(lbl => {
-        const t = tally(grade, sx(lbl));
+        const t = tallyRecords(rows, grade, sx(lbl), inGrade);
         return {
           grade: text,
           sex: lbl,
@@ -2347,7 +2265,7 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
     }
   };
 
-  const males = tally(null, "M").learners;
+  const males = tallyRecords(rows, null, "M", inGrade).learners;
   const wasted = overall.bmi[0] + overall.bmi[1];
   const stunted = overall.hfa[0] + overall.hfa[1];
 
@@ -2369,10 +2287,10 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
     <div className="flex flex-col gap-5">
       <Card
         title="Summary Table"
-        subtitle={`${school.name} · ${period} · SY ${formatSchoolYear(store.activeSy)}${isSpedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}`}
+        subtitle={`${school.name} · ${period} · SY ${formatSchoolYear(store.activeSy)}${spedSchool && cohort !== "All" ? ` · ${cohort} only` : ""}`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
-            {isSpedSchool && (["All", "Regular", "SPED"] as const).map(c => (
+            {spedSchool && (["All", "Regular", "SPED"] as const).map(c => (
               <button
                 key={c}
                 type="button"
@@ -2421,7 +2339,7 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
       {shown.length === 0 ? (
         <Card>
           <p style={{ fontSize: 13.5, color: C.sub }}>
-            No {period} records yet{isSpedSchool && cohort !== "All" ? ` for the ${cohort} cohort` : ""}. Encode them and
+            No {period} records yet{spedSchool && cohort !== "All" ? ` for the ${cohort} cohort` : ""}. Encode them and
             this table fills in.
           </p>
           <div className="mt-4"><Button onClick={onEntry}>Encode {period} records</Button></div>
@@ -2444,7 +2362,7 @@ function SummaryTable({ school, onEntry }: { school: School; onEntry: () => void
           <Form2Sheet
             school={school}
             period={period}
-            cohort={isSpedSchool ? cohort : "All"}
+            cohort={spedSchool ? cohort : "All"}
             sy={store.activeSy}
             rows={summaryRows}
             onExtraChange={(grade, sex, patch) => setExtra(grade, sex, patch)}

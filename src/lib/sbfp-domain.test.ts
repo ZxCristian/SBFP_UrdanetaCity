@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { classifyBeneficiary } from "./sbfp-domain.ts";
+import {
+  EMPTY_STUDENT,
+  classifyBeneficiary,
+  getGrades,
+  isSpedSchool,
+  tallyRecords,
+  type School,
+} from "./sbfp-domain.ts";
 
 describe("classifyBeneficiary", () => {
   it("makes wasted and severely wasted learners Primary from Grade 2", () => {
@@ -32,5 +39,34 @@ describe("classifyBeneficiary", () => {
   it("leaves learners without a stunting or wasting status unclassified", () => {
     assert.equal(classifyBeneficiary("Grade 2", "Normal", "Normal"), "");
     assert.equal(classifyBeneficiary("Grade 2", "", ""), "");
+  });
+});
+
+describe("isSpedSchool", () => {
+  it("uses the stable seeded id, not the school name", () => {
+    assert.equal(isSpedSchool({ id: "es44" }), true);
+    assert.equal(isSpedSchool({ id: "es01" }), false);
+    assert.equal(isSpedSchool(undefined), false);
+    assert.ok(getGrades({ id: "es44", name: "Renamed Central", type: "Elementary" } as School).includes("SPED Kinder"));
+  });
+});
+
+describe("tallyRecords", () => {
+  const rows = [
+    { ...EMPTY_STUDENT("es44", "Baseline"), id: "a", name: "A", sex: "M", gradeLevel: "Grade 1", bmiStatus: "Wasted", hfaStatus: "Normal", dewormed: "Yes", fourPs: "Yes" },
+    { ...EMPTY_STUDENT("es44", "Baseline"), id: "b", name: "B", sex: "F", gradeLevel: "Grade 2", bmiStatus: "Normal", hfaStatus: "Stunted", hasYoungChildren: "Yes" },
+  ] as const;
+
+  it("counts one grade/sex cohort in a single pass", () => {
+    const gradeOne = tallyRecords(rows, "Grade 1", null, (grade, rowGrade) => grade === rowGrade);
+    assert.equal(gradeOne.learners, 1);
+    assert.equal(gradeOne.bmi[1], 1);
+    assert.equal(gradeOne.dewormed, 1);
+    assert.equal(gradeOne.fourPs, 1);
+
+    const all = tallyRecords(rows, null, null, (grade, rowGrade) => grade === rowGrade);
+    assert.equal(all.learners, 2);
+    assert.equal(all.hfa[1], 1);
+    assert.equal(all.pregnantYoung, 1);
   });
 });

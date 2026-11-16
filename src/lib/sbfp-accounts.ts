@@ -107,10 +107,6 @@ export interface SbfpAccess {
   scope: "all" | string[];
 }
 
-export function isAdmin(access: SbfpAccess): boolean {
-  return access.account.role === "admin";
-}
-
 /** Every school id this caller may read or write. */
 export function scopeIds(access: SbfpAccess): string[] {
   return access.scope === "all" ? [] : access.scope;
@@ -136,19 +132,6 @@ export async function assertCanWriteRecord(
   if (access.scope === "all") return;
   const rows = await sql<{ school_id: string }>`
     select school_id from sbfp_records where id = ${id}
-  `;
-  const schoolId = rows[0]?.school_id;
-  if (schoolId) assertCanWriteSchool(access, schoolId);
-}
-
-export async function assertCanWriteFeedback(
-  sql: Sql,
-  access: SbfpAccess,
-  id: string,
-): Promise<void> {
-  if (access.scope === "all") return;
-  const rows = await sql<{ school_id: string }>`
-    select school_id from sbfp_feedback where id = ${id}
   `;
   const schoolId = rows[0]?.school_id;
   if (schoolId) assertCanWriteSchool(access, schoolId);

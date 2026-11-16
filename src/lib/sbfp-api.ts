@@ -130,27 +130,6 @@ async function requireAdmin(email: string | null) {
 }
 
 /**
- * Everything a signed-in visitor needs to know about themselves: their account
- * (role, school, status) and whether the Division Office account exists yet.
- *
- * Never throws for an account-less visitor — the sign-in screens are built on
- * this, and "signed in but not issued an account yet" is a normal state.
- */
-export const fetchAccountState = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const email = await sessionEmail(context);
-    const { getSql } = await import("@/lib/db");
-    const { findAccountByEmail, hasAdminAccount } = await import("./sbfp-accounts");
-    const sql = await getSql();
-    const [account, hasAdmin] = await Promise.all([
-      email ? findAccountByEmail(sql, email) : Promise.resolve(null),
-      hasAdminAccount(sql),
-    ]);
-    return { email, account, hasAdmin };
-  });
-
-/**
  * The whole workspace for the caller: her account, plus the accounts, learner
  * records and feedback she may read. The Division Office gets the division; a
  * teacher gets her own school; an account on hold gets nothing.

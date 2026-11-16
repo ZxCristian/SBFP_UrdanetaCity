@@ -202,10 +202,6 @@ const uid = (prefix: string) => `${prefix}_${Date.now().toString(36)}_${Math.ran
 export const newRecordId = () => uid("tr");
 export const newFeedbackId = () => uid("tf");
 
-/** Is this row one the teacher website owns? */
-export const isTeacherRecord = (s: { id: string }) => s.id.startsWith("tr_");
-export const isTeacherFeedback = (f: { id: string }) => f.id.startsWith("tf_");
-
 // ── Loading from the server ───────────────────────────────────────────────────
 
 /**
@@ -574,9 +570,4 @@ export function updateTeacherFeedback(
   void replyToFeedback({ data: { id, ...patch } })
     .then(ok)
     .catch((err) => reportFailure(err, "The reply"));
-}
-
-/** Test/QA hook: drop everything, as if the browser were new. */
-export function resetTeacherStore() {
-  resetWorkspace();
 }

@@ -20,17 +20,16 @@ import type { ArchivedSchoolYear, SchoolYearSummary } from "@/lib/sbfp-years";
 import {
   BMI_STATUSES,
   HFA_STATUSES,
-  SPED_SCHOOL_NAME,
   calcBMI,
   classifyBMI,
   classifyHFA,
   computeAge,
-  countsAsPregnantOrYoung,
   getGrades,
+  isSpedSchool,
+  tallyRecords,
   type GradeLevel,
   type Period,
   type School,
-  type Sex,
   type Student,
   type SummaryExtra,
   type SummaryMatrixRow,
@@ -66,7 +65,7 @@ function archivedSummaryRows(
 ): SummaryMatrixRow[] {
   const isSpedGrade = (grade: string) => grade.startsWith("SPED");
   const allGrades = getGrades(school);
-  const mergeSped = school.name === SPED_SCHOOL_NAME;
+  const mergeSped = isSpedSchool(school);
   const grades = mergeSped ? allGrades.filter((grade) => !isSpedGrade(grade)) : allGrades;
   const inGrade = (grade: string, rowGrade: GradeLevel) =>
     mergeSped ? grade.replace(/^SPED /, "") === rowGrade : grade === rowGrade;
@@ -88,32 +87,6 @@ function archivedSummaryRows(
         student.sex,
       ),
   }));
-
-  const tally = (grade: GradeLevel | null, sex: Sex | null) => {
-    const out = {
-      bmi: BMI_STATUSES.map(() => 0),
-      hfa: HFA_STATUSES.map(() => 0),
-      learners: 0,
-      fourPs: 0,
-      sbfp: 0,
-      dewormed: 0,
-      pregnantYoung: 0,
-    };
-    for (const student of classified) {
-      if (sex !== null && student.sex !== sex) continue;
-      if (grade !== null && !inGrade(student.gradeLevel, grade)) continue;
-      out.learners += 1;
-      const bmi = BMI_STATUSES.indexOf(student.bmiStatus);
-      if (bmi >= 0) out.bmi[bmi] += 1;
-      const hfa = HFA_STATUSES.indexOf(student.hfaStatus);
-      if (hfa >= 0) out.hfa[hfa] += 1;
-      if (student.fourPs === "Yes") out.fourPs += 1;
-      if (student.sbfpPreviousYears === "Yes") out.sbfp += 1;
-      if (student.dewormed === "Yes") out.dewormed += 1;
-      if (countsAsPregnantOrYoung(student)) out.pregnantYoung += 1;
-    }
-    return out;
-  };
 
   const extraMap = new Map<string, { atRisk: number; ips: number }>();
   for (const extra of extras) {
@@ -145,7 +118,7 @@ function archivedSummaryRows(
   const perGrade = (grade: GradeLevel | null, label: string): SummaryMatrixRow[] =>
     (["M", "F", "Total"] as const).map((sexLabel) => {
       const sex = sexLabel === "Total" ? null : sexLabel;
-      const counts = tally(grade, sex);
+      const counts = tallyRecords(classified, grade, sex, inGrade);
       return {
         grade: label,
         sex: sexLabel,

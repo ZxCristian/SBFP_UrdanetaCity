@@ -14,26 +14,16 @@
  */
 import { useEffect, useState, type CSSProperties } from "react";
 import type { Period, School, SummaryMatrixRow } from "@/lib/sbfp-shared";
-import { uppercasePersonName, formatDateMDY } from "@/lib/sbfp-shared";
+import {
+  FORM2_NOTE,
+  FORM2_SECONDARY,
+  uppercasePersonName,
+  formatDateMDY,
+} from "@/lib/sbfp-shared";
 import { formatSchoolYear } from "@/lib/sbfp-years";
 
 export type Form2Row = SummaryMatrixRow;
 export type ExtraPatch = { atRisk?: number; ips?: number };
-
-export const FORM2_SECONDARY = [
-  "No. of Adolescent Pregnant Learners/ Learners with 0-1 year-old child/ren",
-  "No. of Pupils at risk of dropping out",
-  "No. of Stunted Learners",
-  "No. of Indigenous Peoples (IPs)",
-  "No. of Learners Dewormed",
-  "No. of 4Ps Beneficiaries",
-  "No. of Pupils who are beneficiaries in previous years (Repeaters)",
-  "Date Feeding Started/Ended",
-] as const;
-
-export const FORM2_NOTE =
-  "Note: This form shall be prepared by the school before the start of feeding and after feeding, " +
-  "to be compiled by the SDO, and for the final compilation by the RO, for submission to DepEd BLSS-SHD.";
 
 function PaperField({ text, value }: { text: string; value: string }) {
   return (

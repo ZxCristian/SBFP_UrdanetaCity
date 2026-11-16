@@ -22,7 +22,7 @@ export { authConfigured };
 if (databaseConfigured && !authConfigured) {
   console.error(
     "[auth] A database URL is set but auth is disabled (VITE_AUTH_ENABLED=false) " +
-      "— requireUserId() will reject every request (fail closed) rather than " +
+      "— requireUser() will reject every request (fail closed) rather than " +
       "share one dev user on a real database.",
   );
 }
@@ -31,7 +31,7 @@ if (databaseConfigured && !authConfigured) {
 export const DEV_USER_ID = "dev-user";
 
 /**
- * Thrown by `requireUserId` when the caller has no valid session. Carries
+ * Thrown by `requireUser` when the caller has no valid session. Carries
  * `status: 401`; the message is a stable contract — match
  * `err.message === "Unauthorized"` client-side to send the visitor to sign-in.
  */
@@ -69,21 +69,6 @@ export async function getSessionUser(
   const session = await auth.api.getSession({ headers });
   if (!session?.user) return null;
   return { id: session.user.id, email: session.user.email ?? null };
-}
-
-/**
- * Resolve the current user id for a server function, or throw when unauthorized.
- * Prefer `authMiddleware` (`./middleware`), which calls this for you.
- * - Auth enabled -> the verified session user id; throws
- *   `UnauthorizedError` when signed out. Works in the sandbox preview too (real
- *   sign-in via the baked preview client).
- * - Auth disabled (`VITE_AUTH_ENABLED=false`) + a database URL set -> throw (fail
- *   closed): one shared dev user on a real database would let every visitor
- *   read/write everyone's rows.
- * - Auth disabled + no database -> the shared dev user id.
- */
-export async function requireUserId(bearerToken?: string): Promise<string> {
-  return (await requireUser(bearerToken)).id;
 }
 
 /**

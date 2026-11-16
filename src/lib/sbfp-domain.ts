@@ -149,7 +149,27 @@ const HS_GRADES: GradeLevel[] = ["Grade 7","Grade 8","Grade 9","Grade 10","Grade
 export const PERIODS: Period[] = ["Baseline","Midline","Endline"];
 export const BMI_STATUSES: BMIStatus[] = ["Severely Wasted","Wasted","Normal","Overweight","Obese"];
 export const HFA_STATUSES: HFAStatus[] = ["Severely Stunted","Stunted","Normal","Tall"];
-export const SPED_SCHOOL_NAME = "Urdaneta I Central School";
+export const SPED_SCHOOL_ID = "es44";
+
+/** The seeded Urdaneta I Central row is the division's SPED school. */
+export const isSpedSchool = (school: Pick<School, "id"> | undefined): boolean =>
+  school?.id === SPED_SCHOOL_ID;
+
+/** The printed Form 2 secondary-target labels, in column order. */
+export const FORM2_SECONDARY = [
+  "No. of Adolescent Pregnant Learners/ Learners with 0-1 year-old child/ren",
+  "No. of Pupils at risk of dropping out",
+  "No. of Stunted Learners",
+  "No. of Indigenous Peoples (IPs)",
+  "No. of Learners Dewormed",
+  "No. of 4Ps Beneficiaries",
+  "No. of Pupils who are beneficiaries in previous years (Repeaters)",
+  "Date Feeding Started/Ended",
+] as const;
+
+export const FORM2_NOTE =
+  "Note: This form shall be prepared by the school before the start of feeding and after feeding, " +
+  "to be compiled by the SDO, and for the final compilation by the RO, for submission to DepEd BLSS-SHD.";
 
 const GRADE_ORDER: GradeLevel[] = [
   "Kinder","Grade 1","Grade 2","Grade 3","Grade 4","Grade 5","Grade 6",
@@ -178,7 +198,7 @@ export const getGrades = (school: School|undefined): GradeLevel[] => {
   if (!school) return ES_GRADES;
   if (school.type === "High School") return HS_GRADES;
   // Only Urdaneta 1 Central School offers SPED Kinder–Grade 6
-  if (school.name === SPED_SCHOOL_NAME) return ES_GRADES_WITH_SPED;
+  if (isSpedSchool(school)) return ES_GRADES_WITH_SPED;
   return ES_GRADES;
 };
 
@@ -255,6 +275,53 @@ export function countsAsPregnantOrYoung(s: {
 }): boolean {
   if (s.hasYoungChildren === "Yes") return true;
   return s.pregnant === "Yes" && !mustNotBePregnant(s.sex);
+}
+
+/** Every figure for one grade/sex row, computed in one pass over the records. */
+export interface Tally {
+  bmi: number[];
+  hfa: number[];
+  learners: number;
+  fourPs: number;
+  sbfp: number;
+  dewormed: number;
+  pregnantYoung: number;
+}
+
+/**
+ * Count one grade/sex cohort from a set of learner records in a single pass.
+ * `inGrade` decides which grade rows a record belongs to, so the SPED school's
+ * merged rows can fold `SPED Kinder` into `Kinder`, and so on.
+ */
+export function tallyRecords(
+  rows: readonly Student[],
+  grade: GradeLevel | null,
+  sex: Sex | null,
+  inGrade: (grade: string, rowGrade: GradeLevel) => boolean,
+): Tally {
+  const out: Tally = {
+    bmi: BMI_STATUSES.map(() => 0),
+    hfa: HFA_STATUSES.map(() => 0),
+    learners: 0,
+    fourPs: 0,
+    sbfp: 0,
+    dewormed: 0,
+    pregnantYoung: 0,
+  };
+  for (const s of rows) {
+    if (sex !== null && s.sex !== sex) continue;
+    if (grade !== null && !inGrade(s.gradeLevel, grade)) continue;
+    out.learners += 1;
+    const bmi = BMI_STATUSES.indexOf(s.bmiStatus);
+    if (bmi >= 0) out.bmi[bmi] += 1;
+    const hfa = HFA_STATUSES.indexOf(s.hfaStatus);
+    if (hfa >= 0) out.hfa[hfa] += 1;
+    if (s.fourPs === "Yes") out.fourPs += 1;
+    if (s.sbfpPreviousYears === "Yes") out.sbfp += 1;
+    if (s.dewormed === "Yes") out.dewormed += 1;
+    if (countsAsPregnantOrYoung(s)) out.pregnantYoung += 1;
+  }
+  return out;
 }
 
 /** Format date YYYY-MM-DD → MM/DD/YYYY for SBFP form */

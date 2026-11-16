@@ -51,20 +51,13 @@ html {
 
 @theme {
   --font-sans: "Outfit", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --color-bg: #080808;
-  --color-surface: #111111;
   --color-fg: #e2e2e2;
-  --color-muted: #888888;
-  --color-primary: #00ff87;
-  --color-border: #1e1e1e;
-  --radius: 0.125rem;
 }
 
 @layer base {
   html,
-  body,
-  #app {
+  body {
     height: 100%;
     margin: 0;
   }
