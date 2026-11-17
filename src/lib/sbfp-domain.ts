@@ -29,6 +29,8 @@ export interface School {
   division: string;
   cityMunicipalityBarangay: string;
   schoolIdNumber: string;
+  /** The SPED center's own DepEd school ID — printed on SPED cohort forms. */
+  spedSchoolIdNumber: string;
   principal: string;
   focalPerson: string;
   /** Form 2 only: ISO date the feeding starts. */
@@ -37,9 +39,10 @@ export interface School {
   lastMileSchool: YesNo;
 }
 /** The editable form header fields, minus identity. */
-export type SchoolFormDetails = Pick<School, "division"|"cityMunicipalityBarangay"|"schoolIdNumber"|"principal"|"focalPerson"|"dateStartFeeding"|"lastMileSchool">;
+export type SchoolFormDetails = Pick<School, "division"|"cityMunicipalityBarangay"|"schoolIdNumber"|"spedSchoolIdNumber"|"principal"|"focalPerson"|"dateStartFeeding"|"lastMileSchool">;
 export const EMPTY_FORM_DETAILS: SchoolFormDetails = {
-  division: "Urdaneta City", cityMunicipalityBarangay: "", schoolIdNumber: "", principal: "", focalPerson: "",
+  division: "Urdaneta City", cityMunicipalityBarangay: "", schoolIdNumber: "", spedSchoolIdNumber: "",
+  principal: "", focalPerson: "",
   dateStartFeeding: "", lastMileSchool: "",
 };
 
@@ -152,8 +155,31 @@ export const HFA_STATUSES: HFAStatus[] = ["Severely Stunted","Stunted","Normal",
 export const SPED_SCHOOL_ID = "es44";
 
 /** The seeded Urdaneta I Central row is the division's SPED school. */
-export const isSpedSchool = (school: Pick<School, "id"> | undefined): boolean =>
+export const isSpedSchool = (school: { id?: string } | undefined): boolean =>
   school?.id === SPED_SCHOOL_ID;
+
+/** The SPED center's name, as printed on its own Form 1 and Form 2. */
+export const SPED_SCHOOL_NAME = "URDANETA CITY SPED CENTER";
+
+/**
+ * The school name the SBFP forms print. The SPED center is a program inside
+ * Urdaneta I Central School, so only its own (SPED cohort) exports carry the
+ * center's name; the host school keeps its name everywhere else.
+ */
+export const printedSchoolName = (
+  school: { id?: string; name: string },
+  cohort?: string,
+): string =>
+  cohort === "SPED" && isSpedSchool({ id: school.id }) ? SPED_SCHOOL_NAME : school.name;
+
+/** The School ID Number printed beside that name — the SPED ID when set. */
+export const printedSchoolIdNumber = (
+  school: { id?: string; schoolIdNumber: string; spedSchoolIdNumber?: string },
+  cohort?: string,
+): string => {
+  if (cohort !== "SPED" || !isSpedSchool({ id: school.id })) return school.schoolIdNumber;
+  return school.spedSchoolIdNumber?.trim() || school.schoolIdNumber;
+};
 
 /** The printed Form 2 secondary-target labels, in column order. */
 export const FORM2_SECONDARY = [

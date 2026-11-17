@@ -991,10 +991,17 @@ function ProfileScreen({ profile, school }: { profile: TeacherProfile; school: S
     setTimeout(() => setSaved(false), 2500);
   };
 
+  /** The four fields the district requires before the forms can be printed. */
+  const requiredKeys = new Set<keyof SchoolFormDetails>([
+    "principal", "focalPerson", "schoolIdNumber", "cityMunicipalityBarangay",
+  ]);
   const detailFields: [keyof SchoolFormDetails, string, string][] = [
     ["principal", "Name of Principal / School Head", "Printed on both SBFP forms."],
     ["focalPerson", "Name of Feeding Focal Person", "The signatory on the printed forms."],
     ["schoolIdNumber", "School ID Number", "The DepEd school ID of this school."],
+    ...(isSpedSchool(school)
+      ? [["spedSchoolIdNumber", "SPED School ID Number", "Printed on Form 1 and Form 2 when the SPED cohort is exported."] as [keyof SchoolFormDetails, string, string]]
+      : []),
     ["cityMunicipalityBarangay", "City/Municipality/Barangay", "e.g. Urdaneta City, Barangay San Vicente East."],
     ["division", "Division", "Schools Division Office."],
     ["dateStartFeeding", "Date of Start of Feeding", "Form 2 field."],
@@ -1042,8 +1049,8 @@ function ProfileScreen({ profile, school }: { profile: TeacherProfile; school: S
 
       <Card title="School information" subtitle="The header block of the SBFP forms. The four marked fields are required by the district.">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {detailFields.map(([key, text, hint], i) => {
-            const required = i < 4;
+          {detailFields.map(([key, text, hint]) => {
+            const required = requiredKeys.has(key);
             if (key === "dateStartFeeding") {
               return (
                 <Field key={key} text={text} hint={hint}>
@@ -1681,6 +1688,7 @@ function MyRecords({
         visible,
         period === "All" ? "All" : period,
         store.activeSy,
+        cohort,
       );
     } catch (err) {
       setExportError(err instanceof Error ? err.message : "The Form 1 file could not be built.");

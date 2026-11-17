@@ -5,6 +5,8 @@ import {
   classifyBeneficiary,
   getGrades,
   isSpedSchool,
+  printedSchoolIdNumber,
+  printedSchoolName,
   tallyRecords,
   type School,
 } from "./sbfp-domain.ts";
@@ -48,6 +50,33 @@ describe("isSpedSchool", () => {
     assert.equal(isSpedSchool({ id: "es01" }), false);
     assert.equal(isSpedSchool(undefined), false);
     assert.ok(getGrades({ id: "es44", name: "Renamed Central", type: "Elementary" } as School).includes("SPED Kinder"));
+  });
+});
+
+describe("printed form header", () => {
+  const sped = {
+    id: "es44",
+    name: "Urdaneta I Central School",
+    schoolIdNumber: "100044",
+    spedSchoolIdNumber: "100444",
+  };
+
+  it("prints the SPED center's name and ID only for the SPED cohort", () => {
+    assert.equal(printedSchoolName(sped, "SPED"), "URDANETA CITY SPED CENTER");
+    assert.equal(printedSchoolIdNumber(sped, "SPED"), "100444");
+    assert.equal(printedSchoolName(sped, "All"), "Urdaneta I Central School");
+    assert.equal(printedSchoolName(sped, "Regular"), "Urdaneta I Central School");
+    assert.equal(printedSchoolIdNumber(sped, "All"), "100044");
+  });
+
+  it("falls back to the host school ID when the SPED ID is blank", () => {
+    assert.equal(printedSchoolIdNumber({ ...sped, spedSchoolIdNumber: "  " }, "SPED"), "100044");
+  });
+
+  it("leaves every other school's header untouched", () => {
+    const other = { id: "es01", name: "Anonas East Elementary School", schoolIdNumber: "100001" };
+    assert.equal(printedSchoolName(other, "SPED"), other.name);
+    assert.equal(printedSchoolIdNumber(other, "SPED"), "100001");
   });
 });
 

@@ -17,6 +17,8 @@ import type { Period, School, SummaryMatrixRow } from "@/lib/sbfp-shared";
 import {
   FORM2_NOTE,
   FORM2_SECONDARY,
+  printedSchoolIdNumber,
+  printedSchoolName,
   uppercasePersonName,
   formatDateMDY,
 } from "@/lib/sbfp-shared";
@@ -135,6 +137,7 @@ export function Form2Sheet({
     color: "#111",
   };
   const dateStart = formatDateMDY(school.dateStartFeeding);
+  const printedName = printedSchoolName(school, cohort);
 
   const cells = (row: Form2Row) => {
     const weight = [
@@ -225,8 +228,8 @@ export function Form2Sheet({
       >
         <PaperField text="School Division Office:" value={school.division} />
         <PaperField text="City/Municipality/Barangay:" value={school.cityMunicipalityBarangay} />
-        <PaperField text="Name of School / School District:" value={school.name} />
-        <PaperField text="School ID Number:" value={school.schoolIdNumber} />
+        <PaperField text="Name of School / School District:" value={printedName} />
+        <PaperField text="School ID Number:" value={printedSchoolIdNumber(school, cohort)} />
         <PaperField text="Date of Start of Feeding:" value={dateStart} />
         <PaperField text="Last Mile School:" value={school.lastMileSchool} />
       </div>

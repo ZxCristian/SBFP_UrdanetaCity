@@ -153,6 +153,7 @@ interface AccountDbRow {
   division: string | null;
   city_municipality_barangay: string | null;
   school_id_number: string | null;
+  sped_school_id_number: string | null;
   principal: string | null;
   focal_person: string | null;
   date_start_feeding: string | null;
@@ -192,6 +193,7 @@ function toAccount(row: AccountDbRow): AccountRow {
       division: textOf(row.division) || "Urdaneta City",
       cityMunicipalityBarangay: textOf(row.city_municipality_barangay),
       schoolIdNumber: textOf(row.school_id_number),
+      spedSchoolIdNumber: textOf(row.sped_school_id_number),
       principal: textOf(row.principal),
       focalPerson: textOf(row.focal_person),
       dateStartFeeding: textOf(row.date_start_feeding),
@@ -208,7 +210,7 @@ const ACCOUNT_SELECT = `
   select a.email, a.role, a.full_name, a.position, a.contact, a.school_id,
          a.status, a.temp_password, a.created_at, a.updated_at,
          p.division, p.city_municipality_barangay, p.school_id_number,
-         p.principal, p.focal_person, p.date_start_feeding, p.last_mile_school,
+         p.sped_school_id_number, p.principal, p.focal_person, p.date_start_feeding, p.last_mile_school,
          (select count(*) from sbfp_records r
             where r.school_id = a.school_id
               and r.deleted_at is null
@@ -790,6 +792,7 @@ export async function getSchoolProfile(
     division: string;
     city_municipality_barangay: string;
     school_id_number: string;
+    sped_school_id_number: string;
     principal: string;
     focal_person: string;
     date_start_feeding: string;
@@ -801,6 +804,7 @@ export async function getSchoolProfile(
     division: row.division || "Urdaneta City",
     cityMunicipalityBarangay: row.city_municipality_barangay ?? "",
     schoolIdNumber: row.school_id_number ?? "",
+    spedSchoolIdNumber: row.sped_school_id_number ?? "",
     principal: row.principal ?? "",
     focalPerson: row.focal_person ?? "",
     dateStartFeeding: row.date_start_feeding ?? "",
@@ -850,6 +854,7 @@ export async function saveSchoolProfile(
     division: patch.division ?? current?.division ?? "Urdaneta City",
     cityMunicipalityBarangay: patch.cityMunicipalityBarangay ?? current?.cityMunicipalityBarangay ?? "",
     schoolIdNumber: patch.schoolIdNumber ?? current?.schoolIdNumber ?? "",
+    spedSchoolIdNumber: patch.spedSchoolIdNumber ?? current?.spedSchoolIdNumber ?? "",
     principal: patch.principal ?? current?.principal ?? "",
     focalPerson: patch.focalPerson ?? current?.focalPerson ?? "",
     dateStartFeeding: patch.dateStartFeeding ?? current?.dateStartFeeding ?? "",
@@ -857,17 +862,18 @@ export async function saveSchoolProfile(
   };
   await sql`
     insert into sbfp_school_profiles
-      (school_id, division, city_municipality_barangay, school_id_number, principal,
-       focal_person, date_start_feeding, last_mile_school, updated_at, updated_by)
+      (school_id, division, city_municipality_barangay, school_id_number, sped_school_id_number,
+       principal, focal_person, date_start_feeding, last_mile_school, updated_at, updated_by)
     values (
       ${schoolId}, ${next.division}, ${next.cityMunicipalityBarangay}, ${next.schoolIdNumber},
-      ${next.principal}, ${next.focalPerson}, ${next.dateStartFeeding}, ${next.lastMileSchool},
-      now(), ${updatedBy ?? null}
+      ${next.spedSchoolIdNumber}, ${next.principal}, ${next.focalPerson}, ${next.dateStartFeeding},
+      ${next.lastMileSchool}, now(), ${updatedBy ?? null}
     )
     on conflict (school_id) do update set
       division = excluded.division,
       city_municipality_barangay = excluded.city_municipality_barangay,
       school_id_number = excluded.school_id_number,
+      sped_school_id_number = excluded.sped_school_id_number,
       principal = excluded.principal,
       focal_person = excluded.focal_person,
       date_start_feeding = excluded.date_start_feeding,
@@ -1418,6 +1424,7 @@ interface ArchivedProfileDbRow {
   division: string | null;
   city_municipality_barangay: string | null;
   school_id_number: string | null;
+  sped_school_id_number: string | null;
   principal: string | null;
   focal_person: string | null;
   date_start_feeding: string | null;
@@ -1429,6 +1436,7 @@ function toArchivedForm(row: ArchivedProfileDbRow): SchoolFormDetails {
     division: textOf(row.division) || "Urdaneta City",
     cityMunicipalityBarangay: textOf(row.city_municipality_barangay),
     schoolIdNumber: textOf(row.school_id_number),
+    spedSchoolIdNumber: textOf(row.sped_school_id_number),
     principal: textOf(row.principal),
     focalPerson: textOf(row.focal_person),
     dateStartFeeding: textOf(row.date_start_feeding),
@@ -1462,14 +1470,14 @@ export async function getArchivedYear(sql: Sql, sy: string): Promise<ArchivedSch
       [sy],
     ),
     sql.query<ArchivedProfileDbRow>(
-      "select school_id, division, city_municipality_barangay, school_id_number, principal, focal_person, date_start_feeding, last_mile_school from sbfp_school_profiles_archive where sy = $1",
+      "select school_id, division, city_municipality_barangay, school_id_number, sped_school_id_number, principal, focal_person, date_start_feeding, last_mile_school from sbfp_school_profiles_archive where sy = $1",
       [sy],
     ),
     // The active year has no archive snapshot yet (it is taken when the year
     // closes), so its Form 1A/2 exports read the live school information.
     active
       ? sql.query<ArchivedProfileDbRow>(
-          "select school_id, division, city_municipality_barangay, school_id_number, principal, focal_person, date_start_feeding, last_mile_school from sbfp_school_profiles",
+          "select school_id, division, city_municipality_barangay, school_id_number, sped_school_id_number, principal, focal_person, date_start_feeding, last_mile_school from sbfp_school_profiles",
         )
       : Promise.resolve([] as ArchivedProfileDbRow[]),
     sql.query<SummaryExtraDbRow>(

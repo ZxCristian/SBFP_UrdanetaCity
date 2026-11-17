@@ -5,6 +5,8 @@ import {
   FORM2_NOTE,
   FORM2_SECONDARY,
   formatDateMDY,
+  printedSchoolIdNumber,
+  printedSchoolName,
   sortRecords,
   uppercasePersonName,
   type School,
@@ -26,7 +28,8 @@ export type SchoolFormInfo = Omit<
   School,
   "id" | "type" | "dateStartFeeding" | "lastMileSchool"
 > & {
-  /** Archived exports build this block without a school id. */
+  /** Archived exports build this block without a school id (see `formInfo`). */
+  id?: string;
   type: string;
   dateStartFeeding?: string;
   lastMileSchool?: string;
@@ -85,8 +88,10 @@ export async function buildSbfpWorkbook(
   logoLeft?: string,
   logoRight?: string,
   sy = currentSchoolYear(),
+  cohort?: string,
 ): Promise<ArrayBuffer> {
   const titlePeriod = periodLabel === "All" ? "ALL PERIODS" : periodLabel.toUpperCase();
+  const printedName = printedSchoolName(school, cohort);
   const sorted = sortRecords(rows);
   const principal = uppercasePersonName(school.principal);
   const focalPerson = uppercasePersonName(school.focalPerson);
@@ -139,9 +144,9 @@ export async function buildSbfpWorkbook(
     ["H7", "Name of Principal / School Head:", principal],
     ["A8", "City/Municipality/Barangay:", school.cityMunicipalityBarangay || ""],
     ["H8", "Name of Feeding Focal Person:", focalPerson],
-    ["A9", "Name of School / School District :", school.name || ""],
+    ["A9", "Name of School / School District :", printedName || ""],
     ["A10", "School Type:", school.type || ""],
-    ["A11", "School ID Number:", school.schoolIdNumber || ""],
+    ["A11", "School ID Number:", printedSchoolIdNumber(school, cohort) || ""],
   ];
   for (const [labelRef, label, value] of details) {
     // The value sits two columns right of its label: A# → C#, H# → K#.
@@ -379,8 +384,8 @@ export async function buildSummaryWorkbook(
   const fields: [string, string][] = [
     ["School Division Office:", school.division || ""],
     ["City/Municipality/Barangay:", school.cityMunicipalityBarangay || ""],
-    ["Name of School / School District :", school.name || ""],
-    ["School ID Number:", school.schoolIdNumber || ""],
+    ["Name of School / School District :", printedSchoolName(school, cohort) || ""],
+    ["School ID Number:", printedSchoolIdNumber(school, cohort) || ""],
     ["Date of Start of Feeding:", formatDateLong(school.dateStartFeeding || "")],
     ["Last Mile School:", lastMileText(school.lastMileSchool)],
   ];
@@ -545,7 +550,9 @@ export async function exportSummaryToExcel(input: SummaryExportInput) {
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safeName = input.school.name.replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
+  const safeName = printedSchoolName(input.school, input.cohort)
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "_");
   const safePeriod = input.period.replace(/\s+/g, "_");
   a.href = url;
   a.download = `SBFP_Form_2_${safeName}_${safePeriod}_SY${input.sy || currentSchoolYear()}.xlsx`;
@@ -582,17 +589,18 @@ export async function exportStudentsToExcel(
   rows: StudentRecord[],
   periodLabel: string,
   sy = currentSchoolYear(),
+  cohort?: string,
 ) {
   const [logoLeft, logoRight] = await Promise.all([
     fetchLogoBase64("/deped-logo.png"),
     fetchLogoBase64("/ok-sa-deped.png"),
   ]);
 
-  const buffer = await buildSbfpWorkbook(school, rows, periodLabel, logoLeft, logoRight, sy);
+  const buffer = await buildSbfpWorkbook(school, rows, periodLabel, logoLeft, logoRight, sy, cohort);
   const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safeName = school.name.replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
+  const safeName = printedSchoolName(school, cohort).replace(/[^\w\s-]/g, "").replace(/\s+/g, "_");
   const safePeriod = periodLabel.replace(/\s+/g, "_");
   a.href = url;
   a.download = `SBFP_Form_1A_${safeName}_${safePeriod}_SY${sy}.xlsx`;

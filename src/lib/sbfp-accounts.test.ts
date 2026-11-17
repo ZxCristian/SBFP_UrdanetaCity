@@ -153,6 +153,7 @@ async function emptyDb(): Promise<PGlite> {
     "0005_schools.sql",
     "0006_remove_demo_admin.sql",
     "0007_summary_and_trash.sql",
+    "0008_sped_school_id.sql",
   ]) {
     await fresh.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -170,6 +171,7 @@ before(async () => {
     "0005_schools.sql",
     "0006_remove_demo_admin.sql",
     "0007_summary_and_trash.sql",
+    "0008_sped_school_id.sql",
   ]) {
     await pg.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -797,8 +799,14 @@ describe("passwords", () => {
 
 describe("school data", () => {
   it("merges a header instead of blanking the fields a patch omits", async () => {
-    await saveSchoolProfile(sql, SCHOOL_A, { principal: "Mr. Reyes", schoolIdNumber: "100123" }, TEACHER_A);
+    await saveSchoolProfile(
+      sql,
+      SCHOOL_A,
+      { principal: "Mr. Reyes", schoolIdNumber: "100123", spedSchoolIdNumber: "100999" },
+      TEACHER_A,
+    );
     assert.equal((await findAccountByEmail(sql, TEACHER_A))?.profile.principal, "Mr. Reyes");
+    assert.equal((await findAccountByEmail(sql, TEACHER_A))?.profile.spedSchoolIdNumber, "100999");
 
     // The Division Office fills in one more field of the same school.
     await saveSchoolProfile(sql, SCHOOL_A, { cityMunicipalityBarangay: "Urdaneta City, Barangay Anonas" }, ADMIN);
@@ -806,6 +814,7 @@ describe("school data", () => {
     assert.equal(profile?.principal, "Mr. Reyes", "the earlier fields survive");
     assert.equal(profile?.cityMunicipalityBarangay, "Urdaneta City, Barangay Anonas");
     assert.equal(profile?.division, "Urdaneta City");
+    assert.equal(profile?.spedSchoolIdNumber, "100999", "the SPED ID survives an unrelated patch");
   });
 
   it("sanitizes feedback and never overwrites another school's row", async () => {

@@ -300,11 +300,13 @@ export default function SchoolYears({
     const school = schools.find((s) => s.id === schoolId);
     const form = archive.profiles[schoolId];
     return {
+      id: schoolId,
       name: school?.name ?? schoolId,
       type: school?.type ?? "",
       division: form?.division ?? "Urdaneta City",
       cityMunicipalityBarangay: form?.cityMunicipalityBarangay ?? "",
       schoolIdNumber: form?.schoolIdNumber ?? "",
+      spedSchoolIdNumber: form?.spedSchoolIdNumber ?? "",
       principal: form?.principal ?? "",
       focalPerson: form?.focalPerson ?? "",
       dateStartFeeding: form?.dateStartFeeding ?? "",

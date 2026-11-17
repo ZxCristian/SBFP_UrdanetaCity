@@ -186,14 +186,17 @@ export async function startNewSchoolYear(
   await sql`
     insert into sbfp_school_profiles_archive
       (sy, school_id, division, city_municipality_barangay, school_id_number,
-       principal, focal_person, date_start_feeding, last_mile_school, archived_at)
+       sped_school_id_number, principal, focal_person, date_start_feeding,
+       last_mile_school, archived_at)
     select ${closedSy}, school_id, division, city_municipality_barangay, school_id_number,
-           principal, focal_person, date_start_feeding, last_mile_school, now()
+           sped_school_id_number, principal, focal_person, date_start_feeding,
+           last_mile_school, now()
     from sbfp_school_profiles
     on conflict (sy, school_id) do update set
       division = excluded.division,
       city_municipality_barangay = excluded.city_municipality_barangay,
       school_id_number = excluded.school_id_number,
+      sped_school_id_number = excluded.sped_school_id_number,
       principal = excluded.principal,
       focal_person = excluded.focal_person,
       date_start_feeding = excluded.date_start_feeding,

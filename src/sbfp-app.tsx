@@ -80,7 +80,7 @@ const FEEDBACK_SEEN_KEY = "sbfp.feedbackSeen.v1";
 
 /** The school-list columns a teacher's profile owns — see the sync in `App`. */
 const SCHOOL_HEADER_KEYS = [
-  "division", "cityMunicipalityBarangay", "schoolIdNumber", "principal", "focalPerson",
+  "division", "cityMunicipalityBarangay", "schoolIdNumber", "spedSchoolIdNumber", "principal", "focalPerson",
   "dateStartFeeding", "lastMileSchool",
 ] as const;
 
@@ -816,6 +816,7 @@ function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
     setEditingName(s.name);
     setEditingDetails({
       division: s.division, cityMunicipalityBarangay: s.cityMunicipalityBarangay, schoolIdNumber: s.schoolIdNumber,
+      spedSchoolIdNumber: s.spedSchoolIdNumber,
       principal: s.principal, focalPerson: s.focalPerson,
       dateStartFeeding: s.dateStartFeeding, lastMileSchool: s.lastMileSchool,
     });
@@ -2220,6 +2221,7 @@ export default function App() {
         division: p.division,
         cityMunicipalityBarangay: p.cityMunicipalityBarangay,
         schoolIdNumber: p.schoolIdNumber,
+        spedSchoolIdNumber: p.spedSchoolIdNumber,
         principal: p.principal,
         focalPerson: p.focalPerson,
         dateStartFeeding: p.dateStartFeeding,
@@ -2289,6 +2291,7 @@ export default function App() {
                 division: school.division,
                 cityMunicipalityBarangay: school.cityMunicipalityBarangay,
                 schoolIdNumber: school.schoolIdNumber,
+                spedSchoolIdNumber: school.spedSchoolIdNumber,
                 principal: school.principal,
                 focalPerson: school.focalPerson,
                 dateStartFeeding: school.dateStartFeeding,

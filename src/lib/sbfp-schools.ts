@@ -38,6 +38,7 @@ interface SchoolDbRow {
   division: string | null;
   city_municipality_barangay: string | null;
   school_id_number: string | null;
+  sped_school_id_number: string | null;
   principal: string | null;
   focal_person: string | null;
   date_start_feeding: string | null;
@@ -47,7 +48,7 @@ interface SchoolDbRow {
 const SCHOOL_SELECT = `
   select s.id, s.name, s.type,
          p.division, p.city_municipality_barangay, p.school_id_number,
-         p.principal, p.focal_person, p.date_start_feeding, p.last_mile_school
+         p.sped_school_id_number, p.principal, p.focal_person, p.date_start_feeding, p.last_mile_school
   from sbfp_schools s
   left join sbfp_school_profiles p on p.school_id = s.id
 `;
@@ -57,6 +58,7 @@ function toSchool(row: SchoolDbRow): School {
     division: row.division || "Urdaneta City",
     cityMunicipalityBarangay: row.city_municipality_barangay ?? "",
     schoolIdNumber: row.school_id_number ?? "",
+    spedSchoolIdNumber: row.sped_school_id_number ?? "",
     principal: row.principal ?? "",
     focalPerson: row.focal_person ?? "",
     dateStartFeeding: row.date_start_feeding ?? "",
