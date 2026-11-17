@@ -1734,28 +1734,49 @@ function MyRecords({
             </strong>
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={exportForm1}
-            disabled={exporting || visible.length === 0}
-            className="px-4 py-2 text-sm font-semibold rounded-sm border transition-colors"
-            style={{
-              background: visible.length === 0 || exporting ? C.surface2 : C.surface,
-              color: visible.length === 0 || exporting ? C.dim : C.navy,
-              borderColor: visible.length === 0 || exporting ? C.border : C.navy + "60",
-              cursor: visible.length === 0 || exporting ? "not-allowed" : "pointer",
-            }}
-            title="SBFP Form 1A master list"
-          >
-            {exporting ? "Exporting…" : "↓ Export Excel"}
-          </button>
-          <button
-            onClick={goEntry}
-            className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer"
-            style={{ background: C.navy, color: "#fff" }}
-          >
-            + Add Student
-          </button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={exportForm1}
+              disabled={exporting || visible.length === 0}
+              className="px-4 py-2 text-sm font-semibold rounded-sm border transition-colors"
+              style={{
+                background: visible.length === 0 || exporting ? C.surface2 : C.surface,
+                color: visible.length === 0 || exporting ? C.dim : C.navy,
+                borderColor: visible.length === 0 || exporting ? C.border : C.navy + "60",
+                cursor: visible.length === 0 || exporting ? "not-allowed" : "pointer",
+              }}
+              title="SBFP Form 1A master list"
+            >
+              {exporting ? "Exporting…" : "↓ Export Excel"}
+            </button>
+            <button
+              onClick={goEntry}
+              className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer"
+              style={{ background: C.navy, color: "#fff" }}
+            >
+              + Add Student
+            </button>
+          </div>
+          {spedSchool && (
+            <div className="flex gap-2 flex-wrap justify-end">
+              {(["All", "Regular", "SPED"] as const).map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCohort(c)}
+                  className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
+                  style={
+                    cohort === c
+                      ? { background: C.navySoft, color: C.navy, borderColor: C.navy + "40" }
+                      : { background: C.surface, color: C.dim, borderColor: C.border }
+                  }
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1782,22 +1803,6 @@ function MyRecords({
             {p}
           </button>
         ))}
-        {spedSchool &&
-          (["All", "Regular", "SPED"] as const).map(c => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCohort(c)}
-              className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
-              style={
-                cohort === c
-                  ? { background: C.navySoft, color: C.navy, borderColor: C.navy + "40" }
-                  : { background: C.surface, color: C.dim, borderColor: C.border }
-              }
-            >
-              {c}
-            </button>
-          ))}
       </div>
 
       {exportError && (
