@@ -292,6 +292,11 @@ export const auth = betterAuth({
     window: 60,
     max: 60,
     customRules: {
+      // Session reads are read-only and every page load makes one. Counting them
+      // per IP meant a whole school behind one NAT address — or a 100-user load
+      // test — got 429s just for opening pages. The credential endpoints below
+      // stay limited; those are the ones worth guessing against.
+      "/get-session": false,
       "/sign-in/email": { window: 60, max: 10 },
       "/sign-up/email": { window: 60, max: 5 },
     },

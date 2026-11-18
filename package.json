@@ -19,6 +19,7 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-error.test.ts src/lib/sbfp-accounts.test.ts src/lib/sbfp-domain.test.ts",
     "lint": "eslint .",
+    "loadtest": "node scripts/load-test.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
