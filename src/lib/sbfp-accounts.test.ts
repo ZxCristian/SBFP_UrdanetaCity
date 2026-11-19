@@ -24,6 +24,7 @@ import {
   assertCanWriteSchool,
   changeOwnPassword,
   claimAdminAccountForEmail,
+  clearTeacherLoginFailures,
   countAdmins,
   createAccount,
   createPasswordReset,
@@ -35,18 +36,21 @@ import {
   getArchivedYear,
   getSchoolProfile,
   hasAdminAccount,
+  lockoutMinutesForFailure,
   hashResetToken,
   insertFeedback,
   listAccounts,
   needsCurrentPassword,
   previousBeneficiaryYear,
   pullData,
+  recordTeacherLoginFailure,
   resetPassword,
   resetPasswordWithToken,
   resolveAccess,
   restoreRecord,
   saveSchoolProfile,
   saveSummaryExtra,
+  teacherLoginState,
   updateAccount,
   updateFeedback,
   updateOwnTeacherDetails,
@@ -154,6 +158,8 @@ async function emptyDb(): Promise<PGlite> {
     "0006_remove_demo_admin.sql",
     "0007_summary_and_trash.sql",
     "0008_sped_school_id.sql",
+    "0009_cleanup_load_test_school.sql",
+    "0010_teacher_login_lockout.sql",
   ]) {
     await fresh.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -172,6 +178,8 @@ before(async () => {
     "0006_remove_demo_admin.sql",
     "0007_summary_and_trash.sql",
     "0008_sped_school_id.sql",
+    "0009_cleanup_load_test_school.sql",
+    "0010_teacher_login_lockout.sql",
   ]) {
     await pg.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -1246,5 +1254,52 @@ describe("school years", () => {
     // than borrowing 2025-2026's principal. Exports fall back to a blank form.
     const archived = await getArchivedYear(db, "2026-2027");
     assert.equal(archived.profiles[SCHOOL_A], undefined);
+  });
+});
+
+describe("teacher sign-in lockout", () => {
+  it("escalates from a minute to a hold, and lifting the hold clears it", async () => {
+    assert.equal(lockoutMinutesForFailure(4), 0);
+    assert.equal(lockoutMinutesForFailure(5), 1);
+    assert.equal(lockoutMinutesForFailure(6), 2);
+    assert.equal(lockoutMinutesForFailure(9), 5);
+    assert.equal(lockoutMinutesForFailure(10), 0);
+
+    await clearTeacherLoginFailures(sql, TEACHER_A);
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const state = await recordTeacherLoginFailure(sql, TEACHER_A);
+      assert.equal(state?.failures, attempt);
+      assert.equal(state?.retryAfterSeconds, 0, "the first four failures do not lock the account");
+      assert.equal(state?.held, false);
+    }
+
+    const fifth = await recordTeacherLoginFailure(sql, TEACHER_A);
+    assert.equal(fifth?.failures, 5);
+    assert.ok((fifth?.retryAfterSeconds ?? 0) > 0, "the fifth failure starts a cooldown");
+    assert.ok((fifth?.retryAfterSeconds ?? 0) <= 60, "the first cooldown is one minute");
+    assert.equal(fifth?.held, false);
+
+    // A successful password clears the streak.
+    await clearTeacherLoginFailures(sql, TEACHER_A);
+    assert.equal((await teacherLoginState(sql, TEACHER_A))?.failures, 0);
+
+    // Put the account one failure away from the hold to exercise the tenth
+    // attempt without waiting out every cooldown.
+    await sql.query(
+      "update sbfp_accounts set failed_login_count = 9, lockout_until = null, status = 'active' where lower(email) = $1",
+      [TEACHER_A],
+    );
+    const tenth = await recordTeacherLoginFailure(sql, TEACHER_A);
+    assert.equal(tenth?.failures, 10);
+    assert.equal(tenth?.held, true);
+    assert.equal((await findAccountByEmail(sql, TEACHER_A))?.status, "disabled");
+
+    // The admin's "Lift hold" action resets the streak, so the next typo is
+    // attempt one rather than an immediate return to the hold.
+    await updateAccount(sql, TEACHER_A, { status: "active" });
+    const afterLift = await teacherLoginState(sql, TEACHER_A);
+    assert.equal(afterLift?.failures, 0);
+    assert.equal(afterLift?.retryAfterSeconds, 0);
+    assert.equal(afterLift?.held, false);
   });
 });

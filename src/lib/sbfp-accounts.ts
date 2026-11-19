@@ -459,6 +459,16 @@ export async function updateAccount(
       where lower("email") = ${normalizeEmail(email)}
     `;
   }
+  if (patch.status === "active" && current.status === "disabled") {
+    // Lifting a hold also clears the failed-password streak. Otherwise the next
+    // typo would continue an old count and put the account straight back on hold.
+    await sql`
+      update sbfp_accounts set
+        failed_login_count = 0,
+        lockout_until = null
+      where lower(email) = ${normalizeEmail(email)}
+    `;
+  }
   const updated = await findAccountByEmail(sql, email);
   if (!updated) throw new AccountError("not_found", "That account no longer exists.");
   return updated;
@@ -534,6 +544,113 @@ export function needsCurrentPassword(state: {
   return state.hasPassword && !state.tempPassword;
 }
 
+// ── Teacher sign-in lockout ───────────────────────────────────────────────────
+
+/** What the sign-in route needs to know before it asks Better Auth to verify. */
+export interface TeacherLoginState {
+  failures: number;
+  /** Seconds still left on the cooldown, or 0 when the next try is allowed. */
+  retryAfterSeconds: number;
+  /** True when the account is on hold, including a Division Office hold. */
+  held: boolean;
+}
+
+/**
+ * The cooldown after a failed password. The fifth failure starts at one minute,
+ * the sixth at two, and so on. The tenth failure puts the account on hold
+ * instead of setting another cooldown.
+ */
+export function lockoutMinutesForFailure(failures: number): number {
+  if (failures < 5 || failures >= 10) return 0;
+  return failures - 4;
+}
+
+/** The lockout state of a teacher account, or null for any other account. */
+export async function teacherLoginState(
+  sql: Sql,
+  email: string,
+): Promise<TeacherLoginState | null> {
+  const rows = await sql<{
+    role: AccountRole;
+    status: AccountStatus;
+    failed_login_count: number | string;
+    lockout_until: string | Date | null;
+  }>`
+    select role, status, failed_login_count, lockout_until
+    from sbfp_accounts
+    where lower(email) = ${normalizeEmail(email)}
+  `;
+  const row = rows[0];
+  if (!row || row.role !== "teacher") return null;
+  return loginStateFromRow(row);
+}
+
+function loginStateFromRow(row: {
+  status: AccountStatus;
+  failed_login_count: number | string;
+  lockout_until: string | Date | null;
+}): TeacherLoginState {
+  const failures = Number(row.failed_login_count ?? 0);
+  const until = row.lockout_until ? new Date(row.lockout_until) : null;
+  const retryAfterSeconds = until
+    ? Math.max(0, Math.ceil((until.getTime() - Date.now()) / 1000))
+    : 0;
+  return {
+    failures,
+    retryAfterSeconds: row.status === "disabled" ? 0 : retryAfterSeconds,
+    held: row.status === "disabled",
+  };
+}
+
+/**
+ * Record one wrong password, atomically. The row is the source of truth, so two
+ * simultaneous guesses cannot both be the "fifth" attempt.
+ */
+export async function recordTeacherLoginFailure(
+  sql: Sql,
+  email: string,
+): Promise<TeacherLoginState | null> {
+  const rows = await sql<{
+    role: AccountRole;
+    status: AccountStatus;
+    failed_login_count: number | string;
+    lockout_until: string | Date | null;
+  }>`
+    update sbfp_accounts set
+      failed_login_count = failed_login_count + 1,
+      status = case
+        when failed_login_count + 1 >= 10 then 'disabled'
+        else status
+      end,
+      lockout_until = case
+        when failed_login_count + 1 >= 10 then null
+        when failed_login_count + 1 >= 5
+          then now() + (failed_login_count + 1 - 4) * interval '1 minute'
+        else null
+      end,
+      updated_at = now()
+    where lower(email) = ${normalizeEmail(email)}
+      and role = 'teacher'
+      and status = 'active'
+    returning role, status, failed_login_count, lockout_until
+  `;
+  return rows[0] ? loginStateFromRow(rows[0]) : null;
+}
+
+/** A successful sign-in starts the next cooldown sequence from zero. */
+export async function clearTeacherLoginFailures(
+  sql: Sql,
+  email: string,
+): Promise<void> {
+  await sql`
+    update sbfp_accounts set
+      failed_login_count = 0,
+      lockout_until = null,
+      updated_at = now()
+    where lower(email) = ${normalizeEmail(email)} and role = 'teacher'
+  `;
+}
+
 /**
  * Set a new password for an account (the "Reset password" action) and flag it as
  * temporary, so the portal prompts the teacher to choose her own.
@@ -584,7 +701,11 @@ export async function resetPassword(
     `;
   }
   await sql`
-    update sbfp_accounts set temp_password = true, updated_at = now()
+    update sbfp_accounts set
+      temp_password = true,
+      failed_login_count = 0,
+      lockout_until = null,
+      updated_at = now()
     where lower(email) = ${normalizeEmail(email)}
   `;
   const after = await findAccountByEmail(sql, email);

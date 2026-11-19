@@ -17,7 +17,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useAccess } from "@/lib/use-access";
-import { useEmailSignIn } from "@/lib/auth/use-email-sign-in";
+import { formatRetryAfter, useEmailSignIn } from "@/lib/auth/use-email-sign-in";
 import { usePasswordReset } from "@/lib/auth/use-password-reset";
 import {
   bootstrapAdminAccount,
@@ -93,12 +93,14 @@ function Field({ text, hint, children }: { text: string; hint?: string; children
 function Submit({
   children,
   busy,
+  disabled,
   tone = "accent",
   onClick,
   type = "submit",
 }: {
   children: ReactNode;
   busy?: boolean;
+  disabled?: boolean;
   tone?: "accent" | "ghost";
   onClick?: () => void;
   type?: "submit" | "button";
@@ -108,7 +110,7 @@ function Submit({
     <button
       type={type}
       onClick={onClick}
-      disabled={busy}
+      disabled={busy || disabled}
       style={{
         padding: "11px 18px",
         fontSize: 13.5,
@@ -304,7 +306,7 @@ function AdminPanel({
   onResetDone?: () => void;
 }) {
   const hasAdmin = useHasAdminAccount();
-  const { busy, error, setError, signIn } = useEmailSignIn();
+  const { busy, error, setError, retryAfter, signIn } = useEmailSignIn();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -355,6 +357,7 @@ function AdminPanel({
         <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
           <SignInForm
             busy={busy}
+            retryAfter={retryAfter}
             error={error}
             setError={setError}
             email={email}
@@ -516,6 +519,7 @@ function AdminPanel({
         <div className="mt-4">
           <SignInForm
             busy={busy}
+            retryAfter={retryAfter}
             error={error}
             setError={setError}
             email={email}
@@ -558,6 +562,7 @@ function AdminPanel({
 
 function SignInForm({
   busy,
+  retryAfter,
   error,
   setError,
   email,
@@ -568,6 +573,7 @@ function SignInForm({
   title,
 }: {
   busy: boolean;
+  retryAfter: number;
   error: string;
   setError: (s: string) => void;
   email: string;
@@ -648,9 +654,17 @@ function SignInForm({
           </button>
         </div>
       </Field>
-      {error && <Notice tone="error">{error}</Notice>}
+      {retryAfter > 0 ? (
+        <Notice tone="error">
+          Too many wrong passwords. Try again in <strong>{formatRetryAfter(retryAfter)}</strong>.
+        </Notice>
+      ) : (
+        error && <Notice tone="error">{error}</Notice>
+      )}
       <div className="mt-1">
-        <Submit busy={busy}>Sign in</Submit>
+        <Submit busy={busy} disabled={retryAfter > 0}>
+          {retryAfter > 0 ? `Try again in ${formatRetryAfter(retryAfter)}` : "Sign in"}
+        </Submit>
       </div>
     </form>
   );

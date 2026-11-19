@@ -28,6 +28,10 @@ export interface SignInAuthError {
   message?: string | null;
   /** HTTP status from the refusal — 401 for a credential failure. */
   status?: number | null;
+  /** Set by the teacher lockout gate: `ACCOUNT_LOCKED` or `ACCOUNT_ON_HOLD`. */
+  code?: string | null;
+  /** Seconds left on a lockout; absent for a plain credential failure. */
+  retryAfterSeconds?: number | null;
 }
 
 export function signInErrorMessage(

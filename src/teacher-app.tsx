@@ -80,7 +80,7 @@ import { Form2Sheet } from "@/components/form2-sheet";
 import { manualTotal, useForm2Extras } from "@/lib/use-form2-extras";
 import { UserButton } from "@/lib/auth/gates";
 import { signOut } from "@/lib/auth/client";
-import { useEmailSignIn } from "@/lib/auth/use-email-sign-in";
+import { formatRetryAfter, useEmailSignIn } from "@/lib/auth/use-email-sign-in";
 import { usePasswordReset } from "@/lib/auth/use-password-reset";
 import {
   changeOwnPassword,
@@ -574,7 +574,7 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const { busy, error, setError, signIn } = useEmailSignIn({
+  const { busy, error, setError, retryAfter, signIn } = useEmailSignIn({
     requireCredentials: true,
     invalidCredentialsHint:
       "Check the details, or contact the Technical Assistant of the School-Based Feeding Program for a new temporary password.",
@@ -711,10 +711,20 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
                   </Button>
                 </div>
               </Field>
-              {error && <SignInNotice tone="error">{error}</SignInNotice>}
+              {retryAfter > 0 ? (
+                <SignInNotice tone="error">
+                  Too many wrong passwords. Try again in {formatRetryAfter(retryAfter)}.
+                </SignInNotice>
+              ) : (
+                error && <SignInNotice tone="error">{error}</SignInNotice>
+              )}
               <div className="flex items-center gap-3">
-                <Button type="submit" disabled={busy}>
-                  {busy ? "Signing in…" : "Sign in"}
+                <Button type="submit" disabled={busy || retryAfter > 0}>
+                  {retryAfter > 0
+                    ? `Try again in ${formatRetryAfter(retryAfter)}`
+                    : busy
+                      ? "Signing in…"
+                      : "Sign in"}
                 </Button>
                 <span style={{ fontSize: 11.5, color: C.dim }}>
                   First sign-in? Change the password in My Profile → Account.
