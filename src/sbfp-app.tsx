@@ -1039,21 +1039,9 @@ function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
           setPendingDelete(null);
         }}
       >
-        {(() => {
-          const count = pendingDelete
-            ? students.filter(s => s.schoolId === pendingDelete.id).length
-            : 0;
-          return (
-            <>
-              The school is removed from the district list
-              {count > 0
-                ? " and its " + count + (count === 1 ? " learner record is" : " learner records are") + " deleted with it"
-                : ""}
-              , including the records the school encoded from the School Portal.{" "}
-              <strong style={{ color: t.text }}>This cannot be undone.</strong>
-            </>
-          );
-        })()}
+        The school is removed from the district list. A school that still holds an
+        account, learner records or feedback cannot be deleted — remove those
+        first. <strong style={{ color: t.text }}>This cannot be undone.</strong>
       </ConfirmDialog>
     </div>
   );

@@ -106,8 +106,8 @@ export function databaseUrlFromEnv(env = process.env) {
  * }}
  */
 export function pgPoolOptions(connectionString, options = {}) {
-  const requested = Number(process.env.PGPOOL_MAX ?? options.max ?? 4);
-  const max = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 4;
+  const requested = Number(process.env.PGPOOL_MAX ?? options.max ?? 2);
+  const max = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 2;
   return {
     connectionString: withSslMode(connectionString),
     max,

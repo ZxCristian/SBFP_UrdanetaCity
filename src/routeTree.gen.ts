@@ -15,6 +15,7 @@ import { Route as SchoolPortalRouteImport } from './routes/SchoolPortal'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as TeacherRouteImport } from './routes/teacher'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiMaintenanceCleanupLoadTestRouteImport } from './routes/api/maintenance/cleanup-load-test'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +47,12 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMaintenanceCleanupLoadTestRoute =
+  ApiMaintenanceCleanupLoadTestRouteImport.update({
+    id: '/api/maintenance/cleanup-load-test',
+    path: '/api/maintenance/cleanup-load-test',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -54,6 +61,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/teacher': typeof TeacherRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/maintenance/cleanup-load-test': typeof ApiMaintenanceCleanupLoadTestRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +70,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/teacher': typeof TeacherRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/maintenance/cleanup-load-test': typeof ApiMaintenanceCleanupLoadTestRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,13 +80,27 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/teacher': typeof TeacherRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/maintenance/cleanup-load-test': typeof ApiMaintenanceCleanupLoadTestRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/Admin' | '/SchoolPortal' | '/login' | '/teacher' | '/api/auth/$'
+    | '/'
+    | '/Admin'
+    | '/SchoolPortal'
+    | '/login'
+    | '/teacher'
+    | '/api/auth/$'
+    | '/api/maintenance/cleanup-load-test'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/Admin' | '/SchoolPortal' | '/login' | '/teacher' | '/api/auth/$'
+  to:
+    | '/'
+    | '/Admin'
+    | '/SchoolPortal'
+    | '/login'
+    | '/teacher'
+    | '/api/auth/$'
+    | '/api/maintenance/cleanup-load-test'
   id:
     | '__root__'
     | '/'
@@ -86,6 +109,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/teacher'
     | '/api/auth/$'
+    | '/api/maintenance/cleanup-load-test'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -95,6 +119,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   TeacherRoute: typeof TeacherRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiMaintenanceCleanupLoadTestRoute: typeof ApiMaintenanceCleanupLoadTestRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -141,6 +166,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/maintenance/cleanup-load-test': {
+      id: '/api/maintenance/cleanup-load-test'
+      path: '/api/maintenance/cleanup-load-test'
+      fullPath: '/api/maintenance/cleanup-load-test'
+      preLoaderRoute: typeof ApiMaintenanceCleanupLoadTestRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -151,6 +183,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   TeacherRoute: TeacherRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiMaintenanceCleanupLoadTestRoute: ApiMaintenanceCleanupLoadTestRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -89,7 +89,7 @@ describe("withSslMode", () => {
 describe("pgPoolOptions", () => {
   it("keeps a small per-instance pool and short timeouts", () => {
     const options = pgPoolOptions("postgresql://user@localhost:5432/app");
-    assert.equal(options.max, 4);
+    assert.equal(options.max, 2);
     assert.equal(options.idleTimeoutMillis, 10_000);
     assert.equal(options.connectionTimeoutMillis, 15_000);
     assert.equal(options.connectionString, "postgresql://user@localhost:5432/app");

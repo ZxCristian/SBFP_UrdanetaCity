@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "regions": ["sin1"],
   "buildCommand": "npm run build:deploy",
   "outputDirectory": null,
   "headers": [
