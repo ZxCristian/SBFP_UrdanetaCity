@@ -1,4 +1,6 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
@@ -21,7 +23,10 @@ export const Route = createRootRoute({
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
+      // Keep the platform manifest discoverable for the install tutorial while
+      // the app-owned manifest supplies the installed app's display name.
+      { rel: "alternate", type: "application/manifest+json", href: "/__grok/manifest.webmanifest" },
+      { rel: "manifest", href: "/sbfp.webmanifest" },
       { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
       // Fonts are self-hosted (scripts/vendor-fonts.mjs) and @font-face-declared
       // in src/styles/fonts.css — no third-party stylesheet blocks first paint.
@@ -39,6 +44,8 @@ export const Route = createRootRoute({
         <AuthProvider>
           <Outlet />
         </AuthProvider>
+        <Analytics />
+        <SpeedInsights />
         <Scripts />
       </body>
     </html>
