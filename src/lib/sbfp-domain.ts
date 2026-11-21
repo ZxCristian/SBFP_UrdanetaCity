@@ -401,6 +401,24 @@ const WHO_HFA_M: [number,number][] = [[110.0,4.3],[116.0,4.5],[121.7,4.8],[127.3
 const WHO_HFA_F: [number,number][] = [[109.4,4.2],[115.1,4.5],[120.8,4.8],[126.3,5.2],[131.5,5.6],[136.8,5.9],[142.5,6.0],[147.6,6.0],[151.4,5.9],[153.7,5.8],[154.9,5.8],[155.6,5.7],[156.0,5.7],[156.3,5.7],[156.4,5.7]];
 
 // ── Helper Functions ───────────────────────────────────────────────────────────
+/**
+ * The WHO 2007 BMI-for-age reference `[median, SD]` for an age and sex, or
+ * null outside the 5–19 table. Exported so the sample-data generator can build
+ * measurements that classify exactly the way `classifyBMI` will read them.
+ */
+export function bmiReference(ageYears: string | number, sex: string): [number, number] | null {
+  const age = parseInt(String(ageYears));
+  if (!age || age < 5 || age > 19 || (sex !== "M" && sex !== "F")) return null;
+  return (sex === "M" ? WHO_BMI_M : WHO_BMI_F)[Math.min(age - 5, 14)];
+}
+
+/** The WHO 2007 height-for-age reference `[median, SD]` (cm) for age 5–19. */
+export function hfaReference(ageYears: string | number, sex: string): [number, number] | null {
+  const age = parseInt(String(ageYears));
+  if (!age || age < 5 || age > 19 || (sex !== "M" && sex !== "F")) return null;
+  return (sex === "M" ? WHO_HFA_M : WHO_HFA_F)[Math.min(age - 5, 14)];
+}
+
 export function calcBMI(w: string, h: string): string {
   const wn = parseFloat(w), hn = parseFloat(h) / 100;
   if (!wn || !hn || hn <= 0) return "";
@@ -417,9 +435,10 @@ export function computeAge(dob: string): { years: string; months: string } {
   return { years: String(years), months: String(months) };
 }
 export function classifyBMI(bmi: string, ageYears: string, sex: string): BMIStatus {
-  const b = parseFloat(bmi), age = parseInt(ageYears);
-  if (!b || !age || age < 5 || age > 19 || (sex !== "M" && sex !== "F")) return "";
-  const [med, sd] = (sex === "M" ? WHO_BMI_M : WHO_BMI_F)[Math.min(age - 5, 14)];
+  const b = parseFloat(bmi);
+  const ref = bmiReference(ageYears, sex);
+  if (!b || !ref) return "";
+  const [med, sd] = ref;
   const z = (b - med) / sd;
   if (z < -3) return "Severely Wasted";
   if (z < -2) return "Wasted";
@@ -428,9 +447,10 @@ export function classifyBMI(bmi: string, ageYears: string, sex: string): BMIStat
   return "Obese";
 }
 export function classifyHFA(height: string, ageYears: string, sex: string): HFAStatus {
-  const h = parseFloat(height), age = parseInt(ageYears);
-  if (!h || !age || age < 5 || age > 19 || (sex !== "M" && sex !== "F")) return "";
-  const [med, sd] = (sex === "M" ? WHO_HFA_M : WHO_HFA_F)[Math.min(age - 5, 14)];
+  const h = parseFloat(height);
+  const ref = hfaReference(ageYears, sex);
+  if (!h || !ref) return "";
+  const [med, sd] = ref;
   const z = (h - med) / sd;
   if (z < -3) return "Severely Stunted";
   if (z < -2) return "Stunted";

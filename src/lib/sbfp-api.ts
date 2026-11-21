@@ -138,9 +138,18 @@ export const fetchWorkspace = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const email = await sessionEmail(context);
-    const { getSql } = await import("@/lib/db");
+    const { dbSource, getSql } = await import("@/lib/db");
     const { resolveAccess, pullData } = await import("./sbfp-accounts");
     const sql = await getSql();
+    // The preview's embedded database starts empty. Fill it with the demo
+    // district before the first workspace read (once per process). A configured
+    // Postgres database is never auto-seeded; `npm run seed` does that by hand.
+    if (dbSource === "pglite") {
+      const { ensureSampleData } = await import("./sbfp-seed");
+      await ensureSampleData(sql).catch((err) => {
+        console.error("[sample-data] preview seeding failed", err);
+      });
+    }
     const access = email ? await resolveAccess(sql, email) : null;
     if (!access) {
       const { getActiveSchoolYear } = await import("./sbfp-years");
@@ -302,9 +311,18 @@ export const startSchoolYear = createServerFn({ method: "POST" })
  */
 export const fetchBootstrapState = createServerFn({ method: "GET" }).handler(
   async () => {
-    const { getSql } = await import("@/lib/db");
+    const { dbSource, getSql } = await import("@/lib/db");
     const { hasAdminAccount, countAdmins } = await import("./sbfp-accounts");
     const sql = await getSql();
+    // Start filling the preview database while the visitor reads the sign-in
+    // screen. The workspace load awaits the same promise, so the console never
+    // opens on a half-seeded district. Postgres deployments are left untouched.
+    if (dbSource === "pglite") {
+      const { ensureSampleData } = await import("./sbfp-seed");
+      void ensureSampleData(sql).catch((err) => {
+        console.error("[sample-data] preview seeding failed", err);
+      });
+    }
     return { hasAdmin: await hasAdminAccount(sql), admins: await countAdmins(sql) };
   },
 );
