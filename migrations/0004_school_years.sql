@@ -1,11 +1,12 @@
 -- School years — the archive boundary for every learner record, feedback entry
 -- and school information block.
 --
--- A year is never deleted. Starting a new school year closes the current row in
--- `sbfp_school_years`, snapshots that year's school information into
--- `sbfp_school_profiles_archive`, and opens a new active year. Learner records
--- and feedback stay exactly where they are, stamped with the year they belong
--- to, so the archived years remain readable and exportable forever.
+-- Starting a new school year closes the current row in `sbfp_school_years`,
+-- snapshots that year's school information into `sbfp_school_profiles_archive`,
+-- and opens a new active year. Learner records and feedback stay exactly where
+-- they are, stamped with the year they belong to, so the archived years remain
+-- readable and exportable. The app keeps the active year plus four archived
+-- years; older archived rows are retired (see `purgeExpiredSchoolYears`).
 --
 -- Teacher accounts are deliberately outside this: they carry over from year to
 -- year, and a school's account is never archived.

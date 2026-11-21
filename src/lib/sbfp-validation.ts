@@ -42,8 +42,15 @@ export function learnerProblem(record: LearnerFields): string | null {
   if (!String(record.name ?? "").trim()) {
     return "Enter the learner's name.";
   }
-  if (!String(record.period ?? "").trim()) {
+  if (String(record.name ?? "").trim().length > 120) {
+    return "The learner's name is too long (120 characters maximum).";
+  }
+  const period = String(record.period ?? "").trim();
+  if (!period) {
     return "Choose the measurement period (Baseline, Midline or Endline).";
+  }
+  if (period !== "Baseline" && period !== "Midline" && period !== "Endline") {
+    return "Choose a valid measurement period (Baseline, Midline or Endline).";
   }
   if (!String(record.weight ?? "").trim()) {
     return "Enter the learner's weight in kilograms.";

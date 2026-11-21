@@ -4,9 +4,10 @@
  * The active year is the one every dashboard, table and teacher form works in.
  * Starting a new year closes it, keeps its learner records and feedback in the
  * archive, and resets the live school information (teacher accounts carry over).
- * Nothing is deleted: the page below reads a past year's rows by their `sy`
- * stamp and can export any school's Form 1A and Form 2 from the year's own
- * form header and manual Form 2 counts.
+ * The page reads a past year's rows by their `sy` stamp and can export any
+ * school's Form 1A and Form 2 from the year's own form header and manual Form 2
+ * counts. Archived years older than the five-year retention window are removed
+ * automatically when a new year starts.
  */
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
@@ -15,7 +16,7 @@ import {
   startSchoolYear,
 } from "@/lib/sbfp-api";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { formatSchoolYear, nextSchoolYear, schoolYearProblem } from "@/lib/sbfp-years";
+import { ARCHIVE_RETENTION_YEARS, formatSchoolYear, nextSchoolYear, retentionCutoff, schoolYearProblem } from "@/lib/sbfp-years";
 import type { ArchivedSchoolYear, SchoolYearSummary } from "@/lib/sbfp-years";
 import {
   BMI_STATUSES,
@@ -261,6 +262,7 @@ export default function SchoolYears({
 
   /** The open year's totals — what the confirmation is about to archive. */
   const activeYear = useMemo(() => years?.find((year) => year.active) ?? null, [years]);
+  const oldestKept = retentionCutoff(activeSy);
 
   const archivedLearners = useMemo(() => {
     if (!archive) return 0;
@@ -384,8 +386,14 @@ export default function SchoolYears({
         <div>
           <h1 className="text-lg font-semibold" style={{ color: t.text }}>School Years</h1>
           <p className="text-xs mt-1 max-w-2xl leading-relaxed" style={{ color: t.dim }}>
+            {oldestKept && (
+              <span className="block mb-1" style={{ color: t.sub }}>
+                Retention: keeping {formatSchoolYear(oldestKept)} and newer.
+              </span>
+            )}
             The archive of every school year. Starting a new year keeps the old one here, read-only,
-            and resets the working data for the new one.
+            and resets the working data for the new one. Only the latest {ARCHIVE_RETENTION_YEARS} school
+            years are kept; older archived learner data is deleted automatically.
           </p>
         </div>
         <button
@@ -471,7 +479,8 @@ export default function SchoolYears({
               {starting ? "Starting…" : `Start ${formatSchoolYear(nextSy) || "the new year"}`}
             </button>
             <span className="text-[10px]" style={{ color: t.dim }}>
-              Nothing is deleted. The current year stays in the archive below.
+              The current year stays in the archive. Archives older than {ARCHIVE_RETENTION_YEARS} school
+              years are removed automatically.
             </span>
           </div>
         </div>
@@ -514,8 +523,8 @@ export default function SchoolYears({
           <p>
             Every school's form header (principal, focal person, school ID) is snapshotted
             and cleared, so each school fills it in again. Teacher accounts, passwords and the
-            school list are kept. Nothing is deleted, and the archive stays readable and
-            exportable.
+            school list are kept. Archived years older than {ARCHIVE_RETENTION_YEARS} school years
+            are deleted automatically; newer archives stay readable and exportable.
           </p>
           {starting && <p style={{ color: t.warning }}>Starting the new year…</p>}
         </div>

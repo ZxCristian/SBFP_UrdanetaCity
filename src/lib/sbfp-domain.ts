@@ -23,6 +23,35 @@ export type BMIStatus = "Severely Wasted"|"Wasted"|"Normal"|"Overweight"|"Obese"
 export type HFAStatus = "Severely Stunted"|"Stunted"|"Normal"|"Tall"|"";
 export type YesNo = "Yes"|"No"|"";
 
+export interface SchoolRecordStats {
+  schoolId: string;
+  /** Period rows (Baseline/Midline/Endline) in the active year. */
+  records: number;
+  /** Distinct learners across those periods. */
+  learners: number;
+  /** Periods that have at least one record for this school. */
+  periods: Period[];
+}
+
+/** One district-wide dashboard slice (all schools, elementary, or high school). */
+export interface DivisionSummarySlice {
+  learners: number;
+  schoolsWithData: number;
+  bmi: Record<string, number>;
+  hfa: Record<string, number>;
+  periods: { period: Period; learners: number }[];
+  topSchools: { schoolId: string; learners: number; atRisk: number }[];
+}
+
+/** Dashboard totals, computed by the database instead of downloading every row. */
+export interface DivisionSummary {
+  all: DivisionSummarySlice;
+  elementary: DivisionSummarySlice;
+  highSchool: DivisionSummarySlice;
+  elementaryLearners: number;
+  highSchoolLearners: number;
+}
+
 export interface School {
   id: string; name: string; type: SchoolType;
   /** SBFP form header block (Form 1A export, and Form 2's field block) */

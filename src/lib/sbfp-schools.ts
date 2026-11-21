@@ -114,7 +114,7 @@ export interface NewSchoolInput {
  * sorts and keys exactly like the rest.
  */
 export async function createSchool(sql: Sql, input: NewSchoolInput): Promise<School> {
-  const name = input.name.trim();
+  const name = input.name.trim().slice(0, 160);
   if (!name) throw new SchoolError("invalid_school", "Enter the school's name.");
   const type: SchoolType = input.type === "High School" ? "High School" : "Elementary";
 
@@ -162,7 +162,7 @@ export async function updateSchool(
   const row = current[0];
   if (!row) throw new SchoolError("school_not_found", "That school is not on the list.");
 
-  const name = patch.name === undefined ? row.name : patch.name.trim();
+  const name = (patch.name === undefined ? row.name : patch.name.trim()).slice(0, 160);
   if (!name) throw new SchoolError("invalid_school", "A school needs a name.");
   const type: SchoolType =
     patch.type === undefined ? (row.type as SchoolType) : patch.type === "High School" ? "High School" : "Elementary";

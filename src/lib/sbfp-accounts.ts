@@ -33,16 +33,19 @@ import {
 } from "./sbfp-credentials.ts";
 import { FEEDBACK_CATEGORIES, FEEDBACK_STATUSES } from "./sbfp-domain.ts";
 import type {
+  DivisionSummary,
   FeedbackCategory,
   FeedbackStatus,
   School,
   SchoolFeedback,
   SchoolFormDetails,
+  SchoolRecordStats,
   Student,
   SummaryExtra,
   TrashedRecord,
 } from "@/lib/sbfp-shared";
 import { listSchools } from "./sbfp-schools.ts";
+import { divisionSummary, schoolRecordStats } from "./sbfp-stats.ts";
 import { currentSchoolYear, getActiveSchoolYear, SchoolYearError } from "./sbfp-years.ts";
 import type { ArchivedSchoolYear } from "./sbfp-years.ts";
 import { learnerProblem } from "./sbfp-validation.ts";
@@ -369,7 +372,10 @@ export async function createAccount(
 
   const password = await hashPassword(input.password);
   const userId = randomUUID();
-  const name = input.fullName?.trim() || email;
+  const name = (input.fullName?.trim() || email).slice(0, 120);
+  const fullName = (input.fullName?.trim() ?? "").slice(0, 120);
+  const position = (input.position?.trim() ?? "").slice(0, 120);
+  const contact = (input.contact?.trim() ?? "").slice(0, 160);
   await sql`
     insert into "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
     values (${userId}, ${name}, ${email}, true, now(), now())
@@ -383,8 +389,8 @@ export async function createAccount(
       insert into sbfp_accounts
         (email, role, full_name, position, contact, school_id, status, temp_password, created_at, updated_at)
       values (
-        ${email}, ${input.role}, ${input.fullName?.trim() ?? ""}, ${input.position?.trim() ?? ""},
-        ${input.contact?.trim() ?? ""}, ${schoolId},
+        ${email}, ${input.role}, ${fullName}, ${position},
+        ${contact}, ${schoolId},
         'active', ${input.tempPassword ?? input.role === "teacher"}, now(), now()
       )
     `;
@@ -438,9 +444,9 @@ export async function updateAccount(
     }
   }
 
-  const fullName = patch.fullName === undefined ? current.fullName : patch.fullName.trim();
-  const position = patch.position === undefined ? current.position : patch.position.trim();
-  const contact = patch.contact === undefined ? current.contact : patch.contact.trim();
+  const fullName = (patch.fullName === undefined ? current.fullName : patch.fullName.trim()).slice(0, 120);
+  const position = (patch.position === undefined ? current.position : patch.position.trim()).slice(0, 120);
+  const contact = (patch.contact === undefined ? current.contact : patch.contact.trim()).slice(0, 160);
   await sql`
     update sbfp_accounts set
       full_name = ${fullName},
@@ -971,15 +977,17 @@ export async function saveSchoolProfile(
   const problem = profileProblem(patch);
   if (problem) throw new AccountError("incomplete_profile", problem);
   const current = await getSchoolProfile(sql, schoolId);
+  const text = (value: string | undefined, fallback: string, max: number) =>
+    (value ?? fallback).trim().slice(0, max);
   const next: SchoolFormDetails = {
-    division: patch.division ?? current?.division ?? "Urdaneta City",
-    cityMunicipalityBarangay: patch.cityMunicipalityBarangay ?? current?.cityMunicipalityBarangay ?? "",
-    schoolIdNumber: patch.schoolIdNumber ?? current?.schoolIdNumber ?? "",
-    spedSchoolIdNumber: patch.spedSchoolIdNumber ?? current?.spedSchoolIdNumber ?? "",
-    principal: patch.principal ?? current?.principal ?? "",
-    focalPerson: patch.focalPerson ?? current?.focalPerson ?? "",
-    dateStartFeeding: patch.dateStartFeeding ?? current?.dateStartFeeding ?? "",
-    lastMileSchool: patch.lastMileSchool ?? current?.lastMileSchool ?? "",
+    division: text(patch.division, current?.division ?? "Urdaneta City", 80),
+    cityMunicipalityBarangay: text(patch.cityMunicipalityBarangay, current?.cityMunicipalityBarangay ?? "", 160),
+    schoolIdNumber: text(patch.schoolIdNumber, current?.schoolIdNumber ?? "", 40),
+    spedSchoolIdNumber: text(patch.spedSchoolIdNumber, current?.spedSchoolIdNumber ?? "", 40),
+    principal: text(patch.principal, current?.principal ?? "", 120),
+    focalPerson: text(patch.focalPerson, current?.focalPerson ?? "", 120),
+    dateStartFeeding: text(patch.dateStartFeeding, current?.dateStartFeeding ?? "", 20),
+    lastMileSchool: text(patch.lastMileSchool, current?.lastMileSchool ?? "", 3) as SchoolFormDetails["lastMileSchool"],
   };
   await sql`
     insert into sbfp_school_profiles
@@ -1096,10 +1104,40 @@ export async function upsertRecord(
   // an archived row into the active year.
   const problem = learnerProblem(record);
   if (problem) throw new AccountError("invalid_record", problem);
+  // The form fields are free text, so cap every stored string. Without this a
+  // single crafted request could store megabytes in one row and make every
+  // later export/read pay for it.
+  const text = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
+  const clean: RecordInput = {
+    ...record,
+    id: text(record.id, 120),
+    period: text(record.period, 20) as RecordInput["period"],
+    sy: text(record.sy, 20),
+    name: text(record.name, 120),
+    sex: text(record.sex, 1) as RecordInput["sex"],
+    gradeLevel: text(record.gradeLevel, 40) as RecordInput["gradeLevel"],
+    dateOfBirth: text(record.dateOfBirth, 10),
+    dateOfWeighing: text(record.dateOfWeighing, 10),
+    ageYears: text(record.ageYears, 3),
+    ageMonths: text(record.ageMonths, 3),
+    weight: text(record.weight, 10),
+    height: text(record.height, 10),
+    bmi: text(record.bmi, 10),
+    bmiStatus: text(record.bmiStatus, 40) as RecordInput["bmiStatus"],
+    hfaStatus: text(record.hfaStatus, 40) as RecordInput["hfaStatus"],
+    nutritionalStatus: text(record.nutritionalStatus, 80),
+    classificationOfBeneficiary: text(record.classificationOfBeneficiary, 40) as RecordInput["classificationOfBeneficiary"],
+    pregnant: text(record.pregnant, 3) as RecordInput["pregnant"],
+    hasYoungChildren: text(record.hasYoungChildren, 3) as RecordInput["hasYoungChildren"],
+    dewormed: text(record.dewormed, 3) as RecordInput["dewormed"],
+    parentConsentMilk: text(record.parentConsentMilk, 3) as RecordInput["parentConsentMilk"],
+    fourPs: text(record.fourPs, 3) as RecordInput["fourPs"],
+    sbfpPreviousYears: text(record.sbfpPreviousYears, 3) as RecordInput["sbfpPreviousYears"],
+  };
   // Encoding rule, enforced server-side as well as in the forms: a male learner
   // is recorded as not pregnant. A female learner aged 10 or below defaults to
   // "No" in the form but is not locked, so an explicit "Yes" is preserved here.
-  const pregnant = mustNotBePregnant(record.sex) ? "No" : record.pregnant;
+  const pregnant = mustNotBePregnant(clean.sex) ? "No" : clean.pregnant;
   const activeSy = await getActiveSchoolYear(sql);
   await sql`
     insert into sbfp_records (
@@ -1108,13 +1146,13 @@ export async function upsertRecord(
       classification_of_beneficiary, pregnant, has_young_children, dewormed,
       parent_consent_milk, four_ps, sbfp_previous_years, encoded_by, created_at, updated_at)
     values (
-      ${record.id}, ${schoolId}, ${record.period}, ${activeSy}, ${record.name}, ${record.sex},
-      ${record.gradeLevel}, ${record.dateOfBirth}, ${record.dateOfWeighing}, ${record.ageYears},
-      ${record.ageMonths}, ${record.weight}, ${record.height}, ${record.bmi},
-      ${record.bmiStatus}, ${record.hfaStatus}, ${record.nutritionalStatus},
-      ${record.classificationOfBeneficiary}, ${pregnant}, ${record.hasYoungChildren},
-      ${record.dewormed}, ${record.parentConsentMilk}, ${record.fourPs},
-      ${record.sbfpPreviousYears}, ${encodedBy ?? null}, now(), now()
+      ${clean.id}, ${schoolId}, ${clean.period}, ${activeSy}, ${clean.name}, ${clean.sex},
+      ${clean.gradeLevel}, ${clean.dateOfBirth}, ${clean.dateOfWeighing}, ${clean.ageYears},
+      ${clean.ageMonths}, ${clean.weight}, ${clean.height}, ${clean.bmi},
+      ${clean.bmiStatus}, ${clean.hfaStatus}, ${clean.nutritionalStatus},
+      ${clean.classificationOfBeneficiary}, ${pregnant}, ${clean.hasYoungChildren},
+      ${clean.dewormed}, ${clean.parentConsentMilk}, ${clean.fourPs},
+      ${clean.sbfpPreviousYears}, ${encodedBy ?? null}, now(), now()
     )
     on conflict (id) do update set
       period = excluded.period,
@@ -1331,6 +1369,7 @@ export async function insertFeedback(
   sentBy?: string,
 ): Promise<void> {
   const activeSy = await getActiveSchoolYear(sql);
+  const id = entry.id.trim().slice(0, 120) || randomUUID();
   const message = entry.message.trim();
   if (!message) throw new AccountError("invalid_record", "Write a message before sending feedback.");
   const category = FEEDBACK_CATEGORIES.includes(entry.category) ? entry.category : "Other";
@@ -1347,7 +1386,7 @@ export async function insertFeedback(
     insert into sbfp_feedback
       (id, school_id, sy, author, role, category, rating, message, created_at, status, response, origin, sent_by, updated_at)
     values (
-      ${entry.id}, ${schoolId}, ${activeSy}, ${author}, ${role}, ${category},
+      ${id}, ${schoolId}, ${activeSy}, ${author}, ${role}, ${category},
       ${rating}, ${message.slice(0, 4000)}, ${createdAt}, ${status},
       ${response}, ${entry.origin ?? null}, ${sentBy ?? null}, now()
     )
@@ -1361,12 +1400,16 @@ export async function updateFeedback(
   id: string,
   patch: { status?: FeedbackStatus; response?: string },
 ): Promise<void> {
+  if (patch.status && !FEEDBACK_STATUSES.includes(patch.status)) {
+    throw new AccountError("invalid_record", "Choose a valid feedback status.");
+  }
+  const response = patch.response === undefined ? undefined : patch.response.trim().slice(0, 4000);
   // `coalesce` keeps whichever half the caller did not send: the feed updates a
   // status on its own, and the reply form writes only the response.
   await sql`
     update sbfp_feedback set
       status = coalesce(${patch.status ?? null}::text, status),
-      response = coalesce(${patch.response ?? null}::text, response),
+      response = coalesce(${response ?? null}::text, response),
       updated_at = now()
     where id = ${id}
   `;
@@ -1393,6 +1436,10 @@ export interface SbfpPayload {
   trash: TrashedRecord[];
   /** Form 2's hand-entered at-risk / IP counts for the active year. */
   summaryExtras: SummaryExtra[];
+  /** Small per-school totals — used instead of shipping every learner row. */
+  recordStats: SchoolRecordStats[];
+  /** District dashboard totals for the Division Office (null for a teacher). */
+  divisionSummary: DivisionSummary | null;
 }
 
 /**
@@ -1404,9 +1451,17 @@ export interface SbfpPayload {
  * `getArchivedYear()` — so a new year starts with an empty console without any
  * row being deleted.
  */
-export async function pullData(sql: Sql, access: SbfpAccess): Promise<SbfpPayload> {
+export async function pullData(
+  sql: Sql,
+  access: SbfpAccess,
+  options: { includeRecords?: boolean } = {},
+): Promise<SbfpPayload> {
   const ids = scopeIds(access);
   const all = access.scope === "all";
+  // The Division Office has 58 schools and can have tens of thousands of rows.
+  // It reads a school's raw records only after choosing that school (see
+  // `getSchoolRecords`); the dashboard is served by aggregate SQL instead.
+  const includeRecords = options.includeRecords ?? true;
 
   // Every read is independent, so all five go out together. The school year is
   // inlined as a subquery (the same rule as `getActiveSchoolYear`) so the record
@@ -1417,23 +1472,25 @@ export async function pullData(sql: Sql, access: SbfpAccess): Promise<SbfpPayloa
     (select sy from sbfp_school_years order by sy desc limit 1),
     '${currentSchoolYear()}')`;
   const placeholders = ids.map((_, index) => `$${index + 1}`).join(", ");
-  const [activeSy, accounts, schools, records, feedbacks, trash, summaryExtras, version] = await Promise.all([
+  const [activeSy, accounts, schools, records, feedbacks, trash, summaryExtras, recordStats, version, division] = await Promise.all([
     getActiveSchoolYear(sql),
     listAccounts(sql, all ? {} : { only: ids }),
     listSchools(sql, all ? {} : { only: ids }),
-    all
-      ? sql.query<RecordDbRow>(
-          `select ${RECORD_COLUMNS} from sbfp_records
-           where deleted_at is null and sy = ${activeYear} order by created_at desc`,
-        )
-      : ids.length === 0
-        ? Promise.resolve([] as RecordDbRow[])
-        : sql.query<RecordDbRow>(
+    !includeRecords
+      ? Promise.resolve([] as RecordDbRow[])
+      : all
+        ? sql.query<RecordDbRow>(
             `select ${RECORD_COLUMNS} from sbfp_records
-             where deleted_at is null and school_id in (${placeholders}) and sy = ${activeYear}
-             order by created_at desc`,
-            ids,
-          ),
+             where deleted_at is null and sy = ${activeYear} order by created_at desc`,
+          )
+        : ids.length === 0
+          ? Promise.resolve([] as RecordDbRow[])
+          : sql.query<RecordDbRow>(
+              `select ${RECORD_COLUMNS} from sbfp_records
+               where deleted_at is null and school_id in (${placeholders}) and sy = ${activeYear}
+               order by created_at desc`,
+              ids,
+            ),
     all
       ? sql.query<FeedbackDbRow>(
           `select id, school_id, author, role, category, rating, message, created_at, status, response, origin
@@ -1473,7 +1530,9 @@ export async function pullData(sql: Sql, access: SbfpAccess): Promise<SbfpPayloa
              where school_id in (${placeholders}) and sy = ${activeYear}`,
             ids,
           ),
+    all ? schoolRecordStats(sql) : Promise.resolve([]),
     dataVersion(sql, access),
+    all ? divisionSummary(sql) : Promise.resolve(null),
   ]);
 
   return {
@@ -1485,7 +1544,32 @@ export async function pullData(sql: Sql, access: SbfpAccess): Promise<SbfpPayloa
     feedbacks: feedbacks.map(toFeedback),
     trash: trash.map(toTrashed),
     summaryExtras: summaryExtras.map(toSummaryExtra),
+    recordStats,
+    divisionSummary: division,
   };
+}
+
+/**
+ * One school's active-year learner rows, used when the Division Office opens a
+ * school. The caller has already been authorized; the school id is the scoped
+ * id, never an arbitrary client choice for a teacher.
+ */
+export async function getSchoolRecords(
+  sql: Sql,
+  schoolId: string,
+): Promise<{ records: Student[]; total: number }> {
+  if (!schoolId) return { records: [], total: 0 };
+  const activeYear = `coalesce(
+    (select sy from sbfp_school_years where closed_at is null order by sy desc limit 1),
+    (select sy from sbfp_school_years order by sy desc limit 1),
+    '${currentSchoolYear()}')`;
+  const rows = await sql.query<RecordDbRow>(
+    `select ${RECORD_COLUMNS} from sbfp_records
+     where deleted_at is null and school_id = $1 and sy = ${activeYear}
+     order by created_at desc`,
+    [schoolId],
+  );
+  return { records: rows.map(toStudent), total: rows.length };
 }
 
 /**

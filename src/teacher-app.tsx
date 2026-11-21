@@ -1644,6 +1644,8 @@ function MyRecords({
   const [period, setPeriod] = useState<Period | "All">("All");
   const [cohort, setCohort] = useState<"All" | "Regular" | "SPED">("All");
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = 200;
   /** The record the teacher asked to delete — nothing is removed until she confirms. */
   const [pendingDelete, setPendingDelete] = useState<Student | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -1663,6 +1665,10 @@ function MyRecords({
     (!spedSchool || cohort === "All" ? true : cohort === "SPED" ? isSpedGrade(r.gradeLevel) : !isSpedGrade(r.gradeLevel)) &&
     (!needle || `${r.name} ${r.gradeLevel} ${r.bmiStatus} ${r.hfaStatus}`.toLowerCase().includes(needle)),
   );
+  useEffect(() => setPage(0), [period, cohort, q]);
+  const pageCount = Math.max(1, Math.ceil(visible.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const visiblePage = visible.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   /**
    * SBFP Form 1A — the master list, with the same header block, columns and
@@ -1838,8 +1844,8 @@ function MyRecords({
             </tr>
           </thead>
           <tbody>
-            {visible.map((s, idx) => {
-              const prev = visible[idx - 1];
+            {visiblePage.map((s, idx) => {
+              const prev = visiblePage[idx - 1];
               const gradeBreak = Boolean(prev && prev.gradeLevel !== s.gradeLevel);
               return (
                 <tr
@@ -1852,7 +1858,7 @@ function MyRecords({
                   onMouseEnter={e => (e.currentTarget.style.background = "#faf8f1")}
                   onMouseLeave={e => (e.currentTarget.style.background = gradeBreak ? C.surface2 : "transparent")}
                 >
-                  {td(idx + 1, { mono: true, color: C.dim })}
+                  {td(safePage * pageSize + idx + 1, { mono: true, color: C.dim })}
                   <td className="px-2 py-2 text-left font-medium" style={{ color: C.text, borderRight: `1px solid ${C.surface2}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
                   {td(s.sex)}
                   {td(s.gradeLevel)}
@@ -1922,6 +1928,21 @@ function MyRecords({
           </tbody>
         </table>
       </div>
+
+      {visible.length > pageSize && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-[11px]" style={{ color: C.dim }}>
+            Showing {safePage * pageSize + 1}–{Math.min(visible.length, (safePage + 1) * pageSize)} of {visible.length} filtered records
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:C.border, color:safePage===0?C.dim:C.sub, background:C.surface, cursor:safePage===0?"not-allowed":"pointer" }}>← Previous</button>
+            <span className="text-[11px]" style={{ color:C.dim }}>Page {safePage + 1} / {pageCount}</span>
+            <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:C.border, color:safePage>=pageCount-1?C.dim:C.sub, background:C.surface, cursor:safePage>=pageCount-1?"not-allowed":"pointer" }}>Next →</button>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}

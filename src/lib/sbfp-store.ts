@@ -39,9 +39,11 @@ import {
 // Type-only, so this import is erased and sbfp-app.tsx -> sbfp-store.ts stays
 // a one-way runtime edge (no import cycle).
 import type {
+  DivisionSummary,
   School,
   SchoolFeedback,
   SchoolFormDetails,
+  SchoolRecordStats,
   Student,
   SummaryExtra,
   TrashedRecord,
@@ -131,6 +133,10 @@ export interface TeacherStoreState {
   trash: TrashedRecord[];
   /** Form 2's hand-entered at-risk / IP counts for the active year. */
   summaryExtras: SummaryExtra[];
+  /** Per-school active-year totals; avoids downloading every learner row. */
+  recordStats: SchoolRecordStats[];
+  /** District dashboard totals (Division Office only). */
+  divisionSummary: DivisionSummary | null;
   /** Why the last server write failed, if it did. */
   syncError: string | null;
   /** True while a workspace read is in flight. */
@@ -151,6 +157,8 @@ const EMPTY: TeacherStoreState = Object.freeze({
   feedbacks: [],
   trash: [],
   summaryExtras: [],
+  recordStats: [],
+  divisionSummary: null,
   syncError: null,
   syncing: false,
 });
@@ -295,6 +303,8 @@ export function syncWorkspace(expectedEmail?: string | null, force = false): Pro
         feedbacks: (workspace.feedbacks ?? []) as SchoolFeedback[],
         trash: (workspace.trash ?? []) as TrashedRecord[],
         summaryExtras: (workspace.summaryExtras ?? []) as SummaryExtra[],
+        recordStats: (workspace.recordStats ?? []) as SchoolRecordStats[],
+        divisionSummary: (workspace.divisionSummary ?? null) as DivisionSummary | null,
       });
       await carryLegacyWorkForward();
     })
@@ -318,6 +328,8 @@ export function syncWorkspace(expectedEmail?: string | null, force = false): Pro
         feedbacks: [],
         trash: [],
         summaryExtras: [],
+        recordStats: [],
+        divisionSummary: null,
         syncError: signedOut ? null : `Could not reach the division server: ${message}`,
       });
     })
@@ -510,9 +522,9 @@ export function removeRecord(id: string) {
 }
 
 /** Put a record from the trash back on the school's active list. */
-export function restoreRecord(id: string) {
+export function restoreRecord(id: string): Promise<void> {
   const record = state.trash.find((r) => r.id === id);
-  if (!record) return;
+  if (!record) return Promise.resolve();
   const previousTrash = state.trash;
   const previousRecords = state.records;
   const { deletedAt, deletedBy, ...restored } = record;
@@ -522,8 +534,8 @@ export function restoreRecord(id: string) {
     trash: state.trash.filter((r) => r.id !== id),
     records: record.sy === state.activeSy ? [restored, ...state.records] : state.records,
   });
-  void restoreLearnerRecord({ data: { id } })
-    .then(ok)
+  return restoreLearnerRecord({ data: { id } })
+    .then(() => { ok(); })
     .catch((err) => {
       set({ trash: previousTrash, records: previousRecords });
       reportFailure(err, "The learner record");

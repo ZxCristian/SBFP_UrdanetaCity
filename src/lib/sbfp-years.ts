@@ -1,11 +1,12 @@
 /**
  * School years — the boundary between one year's working data and its archive.
  *
- * A year is never deleted. Starting a new one closes the current row, snapshots
- * the school information block that the printed forms carry, and opens the next
- * year. Learner records and feedback are not moved or copied: each row already
- * carries the year it belongs to (`sy`), so the active-year reads simply stop
- * seeing the old rows and the archive reads them by year.
+ * Starting a new one closes the current row, snapshots the school information
+ * block that the printed forms carry, and opens the next year. Learner records
+ * and feedback are not moved or copied: each row already carries the year it
+ * belongs to (`sy`), so the active-year reads simply stop seeing the old rows
+ * and the archive reads them by year. Archived years older than the five-year
+ * retention window are removed permanently when a new year starts.
  *
  * This module is plain functions over `Sql` (the same pattern as
  * `sbfp-accounts.ts`) so the PGlite test can exercise the real SQL. It must not
@@ -113,6 +114,53 @@ export async function getActiveSchoolYear(sql: Sql): Promise<string> {
     select sy from sbfp_school_years order by sy desc limit 1
   `;
   return latest[0]?.sy ?? currentSchoolYear();
+}
+
+/** How many school years of archived learner data the district keeps. */
+export const ARCHIVE_RETENTION_YEARS = 5;
+
+/**
+ * Oldest school year that is still kept. The active year counts as one of the
+ * five, so opening 2030-2031 keeps 2026-2027 through 2030-2031 and retires
+ * 2025-2026 and anything older. Exported so the UI can say what will happen
+ * before the next year starts.
+ */
+export function retentionCutoff(activeSy: string, keep = ARCHIVE_RETENTION_YEARS): string | null {
+  const match = SCHOOL_YEAR_RE.exec(activeSy.trim());
+  if (!match || keep < 1) return null;
+  const start = Number(match[1]) - (keep - 1);
+  return `${start}-${start + 1}`;
+}
+
+/**
+ * Permanently remove archived years older than the retention window.
+ *
+ * This only ever touches CLOSED years; the active year and the newest archived
+ * years stay readable. Deleting the year row last keeps the archive's foreign
+ * key valid if a run is interrupted, and the next run can safely continue.
+ */
+export async function purgeExpiredSchoolYears(
+  sql: Sql,
+  keep = ARCHIVE_RETENTION_YEARS,
+): Promise<string[]> {
+  const activeSy = await getActiveSchoolYear(sql);
+  const cutoff = retentionCutoff(activeSy, keep);
+  if (!cutoff) return [];
+
+  const expired = await sql<{ sy: string }>`
+    select sy from sbfp_school_years
+    where closed_at is not null and sy < ${cutoff}
+    order by sy
+  `;
+  const years = expired.map((row) => row.sy);
+  for (const sy of years) {
+    await sql`delete from sbfp_records where sy = ${sy}`;
+    await sql`delete from sbfp_feedback where sy = ${sy}`;
+    await sql`delete from sbfp_summary_extras where sy = ${sy}`;
+    await sql`delete from sbfp_school_profiles_archive where sy = ${sy}`;
+    await sql`delete from sbfp_school_years where sy = ${sy}`;
+  }
+  return years;
 }
 
 /** Every year, newest first, with the counts the School Years page shows. */
@@ -235,6 +283,14 @@ export async function startNewSchoolYear(
   // information, re-entered by each school. The snapshot above keeps the old
   // one with the archive.
   await sql`delete from sbfp_school_profiles`;
+
+  // Archived years beyond the five-year window are retired now, while the year
+  // boundary is already being written. This is intentionally best-effort: the
+  // school year has opened successfully, and a failed cleanup must not make the
+  // caller think the new year did not start. A later year start retries it.
+  await purgeExpiredSchoolYears(sql).catch((err) => {
+    console.error("[school-years] archive retention cleanup failed", err);
+  });
 
   return { sy, closedSy };
 }

@@ -16,8 +16,11 @@ import { formatSchoolYear } from "@/lib/sbfp-years";
 import { learnerProblem } from "@/lib/sbfp-validation";
 import {
   createSchoolEntry,
+  fetchSchoolRecords,
   lookupPreviousBeneficiary,
+  removeLearnerRecord,
   removeSchoolEntry,
+  saveLearnerRecord,
   saveSchoolHeader,
   updateSchoolEntry,
 } from "@/lib/sbfp-api";
@@ -60,9 +63,11 @@ import type {
   GradeLevel,
   HFAStatus,
   Period,
+  DivisionSummary,
   School,
   SchoolFeedback,
   SchoolFormDetails,
+  SchoolRecordStats,
   SchoolType,
   Sex,
   Student,
@@ -322,41 +327,38 @@ function Sidebar({ view, setView, selectedSchool, setSelectedSchool, themeMode, 
 }
 
 // ── District Dashboard ────────────────────────────────────────────────────────
-function DistrictDashboard({ students, schools, feedbacks, activeSy, onOpenFeedbacks }: {
-  students:Student[]; schools:School[]; feedbacks:SchoolFeedback[]; activeSy:string; onOpenFeedbacks:()=>void;
+function DistrictDashboard({ summary, schools, feedbacks, activeSy, onOpenFeedbacks }: {
+  summary:DivisionSummary | null; schools:School[]; feedbacks:SchoolFeedback[]; activeSy:string; onOpenFeedbacks:()=>void;
 }) {
   const t = useT();
   const [tab, setTab] = useState<"All"|"Elementary"|"High School">("All");
+  const slice = !summary
+    ? null
+    : tab === "Elementary"
+      ? summary.elementary
+      : tab === "High School"
+        ? summary.highSchool
+        : summary.all;
 
-  const esIds = useMemo(() => new Set(schools.filter(s=>s.type==="Elementary").map(s=>s.id)), [schools]);
-  const hsIds = useMemo(() => new Set(schools.filter(s=>s.type==="High School").map(s=>s.id)), [schools]);
-
-  const filtered = useMemo(() => tab==="All" ? students : students.filter(s => tab==="Elementary" ? esIds.has(s.schoolId) : hsIds.has(s.schoolId)), [students, tab, esIds, hsIds]);
-  // One row per student (prefer Endline) so totals are not tripled by period records
-  const uniqueFiltered = useMemo(() => uniqueStudents(filtered), [filtered]);
-
-  const bmiDist = BMI_STATUSES.map(st => ({ label:st, val:uniqueFiltered.filter(s=>s.bmiStatus===st).length, color:t.bmi[st] }));
-  const hfaDist = HFA_STATUSES.map(st => ({ label:st, val:uniqueFiltered.filter(s=>s.hfaStatus===st).length, color:t.hfa[st] }));
+  const bmiDist = BMI_STATUSES.map(st => ({ label:st, val:slice?.bmi[st] ?? 0, color:t.bmi[st] }));
+  const hfaDist = HFA_STATUSES.map(st => ({ label:st, val:slice?.hfa[st] ?? 0, color:t.hfa[st] }));
   const maxBMI = Math.max(...bmiDist.map(x=>x.val), 1);
   const maxHFA = Math.max(...hfaDist.map(x=>x.val), 1);
 
-  const periodCounts = PERIODS.map(p => ({ period:p, count:uniqueCount(filtered.filter(s=>s.period===p)) }));
+  const periodCounts = PERIODS.map(p => ({
+    period:p,
+    count:slice?.periods.find((entry) => entry.period === p)?.learners ?? 0,
+  }));
   const maxPeriod = Math.max(...periodCounts.map(x=>x.count), 1);
 
-  const topSchools = schools.map(s => {
-    const schoolRecs = students.filter(st=>st.schoolId===s.id);
-    const uniq = uniqueStudents(schoolRecs);
-    return {
-      school: s,
-      count: uniq.length,
-      atRisk: uniq.filter(st=>st.bmiStatus==="Severely Wasted"||st.bmiStatus==="Wasted").length,
-    };
-  }).filter(x=>x.count>0).sort((a,b)=>b.atRisk-a.atRisk).slice(0,8);
+  const topSchools = (slice?.topSchools ?? [])
+    .map((entry) => ({ ...entry, school: schools.find((s) => s.id === entry.schoolId) }))
+    .filter((entry): entry is typeof entry & { school: School } => Boolean(entry.school));
 
-  const esCount = uniqueCount(students.filter(s=>esIds.has(s.schoolId)));
-  const hsCount = uniqueCount(students.filter(s=>hsIds.has(s.schoolId)));
-  const esSchoolsWithData = schools.filter(s=>s.type==="Elementary"&&students.some(st=>st.schoolId===s.id)).length;
-  const hsSchoolsWithData = schools.filter(s=>s.type==="High School"&&students.some(st=>st.schoolId===s.id)).length;
+  const esCount = summary?.elementaryLearners ?? 0;
+  const hsCount = summary?.highSchoolLearners ?? 0;
+  const esSchoolsWithData = summary?.elementary.schoolsWithData ?? 0;
+  const hsSchoolsWithData = summary?.highSchool.schoolsWithData ?? 0;
 
   // Feedbacks from every school, newest first — the Feedbacks page shows the rest.
   const latestFeedback = useMemo(
@@ -383,13 +385,13 @@ function DistrictDashboard({ students, schools, feedbacks, activeSy, onOpenFeedb
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ background:t.border }}>
-        <StatCard label="Total Students" value={uniqueFiltered.length} accent t={t} />
+        <StatCard label="Total Students" value={slice?.learners ?? 0} accent t={t} />
         <StatCard label="Schools with Data" value={tab==="All"?`${esSchoolsWithData+hsSchoolsWithData}/${schools.length}`:tab==="Elementary"?`${esSchoolsWithData}/${schools.filter(s=>s.type==="Elementary").length}`:`${hsSchoolsWithData}/${schools.filter(s=>s.type==="High School").length}`} t={t} />
         <StatCard label="Elementary Students" value={esCount} t={t} />
         <StatCard label="High School Students" value={hsCount} t={t} />
       </div>
 
-      {students.length === 0 && (
+      {(slice?.learners ?? 0) === 0 && (
         <div style={{ border:`1px dashed ${t.border}`, background:t.surface }} className="p-5">
           <p className="text-sm" style={{ color:t.sub }}>No learner records yet.</p>
           <p className="text-xs mt-1" style={{ color:t.dim }}>
@@ -448,7 +450,7 @@ function DistrictDashboard({ students, schools, feedbacks, activeSy, onOpenFeedb
                   <span className="text-sm" style={{ color:t.text }}>{x.school.name}</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-xs" style={{ color:t.dim }}>{x.count} students</span>
+                  <span className="text-xs" style={{ color:t.dim }}>{x.learners} students</span>
                   <span className="text-xs font-semibold" style={{ fontFamily:"'JetBrains Mono',monospace", color:x.atRisk>0?t.danger:t.dim }}>{x.atRisk} at-risk</span>
                 </div>
               </div>
@@ -787,9 +789,9 @@ function Feedbacks({ feedbacks, setFeedbacks, schools, defaultSchool }: {
 }
 
 // ── Schools List ──────────────────────────────────────────────────────────────
-function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
-  students:Student[]; schools:School[]; setSchools:(s:School[])=>void;
-  setStudents:(s:Student[])=>void; onSelect:(s:School)=>void;
+function SchoolsList({ stats, schools, setSchools, onSelect }: {
+  stats:SchoolRecordStats[]; schools:School[]; setSchools:(s:School[])=>void;
+  onSelect:(s:School)=>void;
 }) {
   const t = useT();
   const [search, setSearch] = useState("");
@@ -808,8 +810,9 @@ function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
     s => (typeFilter==="All"||s.type===typeFilter) && s.name.toLowerCase().includes(search.toLowerCase())
   ), [schools, search, typeFilter]);
 
-  const coverage = (id: string) => PERIODS.filter(p => students.some(s=>s.schoolId===id&&s.period===p));
-  const count = (id: string) => uniqueCount(students.filter(s=>s.schoolId===id));
+  const statById = useMemo(() => new Map(stats.map((row) => [row.schoolId, row])), [stats]);
+  const coverage = (id: string) => statById.get(id)?.periods ?? [];
+  const count = (id: string) => statById.get(id)?.learners ?? 0;
 
   const startEdit = (s: School) => {
     setEditingId(s.id);
@@ -829,7 +832,6 @@ function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
   };
   const deleteSchool = (id: string) => {
     setSchools(schools.filter(s=>s.id!==id));
-    setStudents(students.filter(s=>s.schoolId!==id));
   };
   const addSchool = () => {
     if (!newName.trim()) return;
@@ -865,7 +867,7 @@ function SchoolsList({ students, schools, setSchools, setStudents, onSelect }: {
 
       <div className="grid grid-cols-3 gap-px" style={{ background:t.border }}>
         {PERIODS.map(p => {
-          const n = schools.filter(s=>students.some(st=>st.schoolId===s.id&&st.period===p)).length;
+          const n = schools.filter(s => statById.get(s.id)?.periods.includes(p)).length;
           return (
             <div key={p} style={{ border:`1px solid ${t.border}`, background:t.surface }} className="p-4">
               <div className="text-[9px] tracking-widest uppercase mb-2" style={{ color:t.period[p] }}>{p}</div>
@@ -1624,6 +1626,8 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
   const [period, setPeriod] = useState<Period|"All">("All");
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = 200;
   /** The learner whose ✕ was clicked — nothing is removed until this is confirmed. */
   const [pendingDelete, setPendingDelete] = useState<Student | null>(null);
 
@@ -1636,6 +1640,10 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
     );
     return sortRecords(list);
   }, [students, period, search]);
+  useEffect(() => setPage(0), [period, search]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const visiblePage = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
 
   const del = (id: string) => setStudents(students.filter(s => s.id !== id));
   const th: CSSProperties = {
@@ -1723,8 +1731,8 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
             </tr>
           </thead>
           <tbody>
-            {filtered.map((s, idx) => {
-              const prev = filtered[idx - 1];
+            {visiblePage.map((s, idx) => {
+              const prev = visiblePage[idx - 1];
               const gradeBreak = prev && prev.gradeLevel !== s.gradeLevel;
               return (
                 <tr key={s.id} className="group"
@@ -1734,7 +1742,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
                   }}
                   onMouseEnter={e => (e.currentTarget.style.background = t.hover)}
                   onMouseLeave={e => (e.currentTarget.style.background = gradeBreak ? t.surfaceDeep : "transparent")}>
-                  {td(idx + 1, { mono: true, color: t.dim })}
+                  {td(safePage * pageSize + idx + 1, { mono: true, color: t.dim })}
                   <td className="px-2 py-2 text-left font-medium" style={{ color: t.text, borderRight: `1px solid ${t.surfaceDeep}`, whiteSpace: "nowrap" }}>{s.name || "—"}</td>
                   {td(s.sex)}
                   {td(s.gradeLevel)}
@@ -1787,6 +1795,25 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
         </table>
       </div>
 
+      {filtered.length > pageSize && (
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-[11px]" style={{ color: t.dim }}>
+            Showing {safePage * pageSize + 1}–{Math.min(filtered.length, (safePage + 1) * pageSize)} of {filtered.length} filtered records
+          </span>
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:safePage===0?t.faint:t.sub, background:t.surface, cursor:safePage===0?"not-allowed":"pointer" }}>
+              ← Previous
+            </button>
+            <span className="text-[11px]" style={{ color:t.dim }}>Page {safePage + 1} / {pageCount}</span>
+            <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:safePage>=pageCount-1?t.faint:t.sub, background:t.surface, cursor:safePage>=pageCount-1?"not-allowed":"pointer" }}>
+              Next →
+            </button>
+          </div>
+        </div>
+      )}
+
       <ConfirmDialog
         open={pendingDelete !== null}
         title={`Delete ${pendingDelete?.name || "this learner"}'s record?`}
@@ -1813,7 +1840,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
 }
 
 // ── Trash ─────────────────────────────────────────────────────────────────────
-function TrashPanel({ trash, schools }: { trash: TrashedRecord[]; schools: School[] }) {
+function TrashPanel({ trash, schools, onRestored }: { trash: TrashedRecord[]; schools: School[]; onRestored?: () => void }) {
   const t = useT();
   const [q, setQ] = useState("");
   const schoolName = (id: string) => schools.find(s => s.id === id)?.name ?? "Unknown school";
@@ -1875,7 +1902,7 @@ function TrashPanel({ trash, schools }: { trash: TrashedRecord[]; schools: Schoo
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <button
-                      onClick={() => restoreRecord(r.id)}
+                      onClick={() => { void restoreRecord(r.id).then(() => onRestored?.()); }}
                       className="px-3 py-1.5 text-[11px] rounded-sm cursor-pointer border transition-colors"
                       style={{ borderColor: t.accent + "55", color: t.accent, background: t.accentBg }}
                     >
@@ -2220,6 +2247,42 @@ export default function App() {
 
   const teacherRecords = teacherData.records;
   const teacherFeedbacks = teacherData.feedbacks;
+  const isAdmin = teacherData.account?.role === "admin";
+  /** Set while the selected school's records are being read from the server. */
+  const [recordsLoading, setRecordsLoading] = useState(false);
+
+  // The Division Office workspace carries totals only. Load one school's rows
+  // when it is opened, so 20,000 learners never reach this browser at once.
+  useEffect(() => {
+    if (!isAdmin) return;
+    if (!selectedSchool) {
+      setStudents([]);
+      setRecordsLoading(false);
+      return;
+    }
+    let live = true;
+    setStudents([]);
+    setEditingStudent(null);
+    setRecordsLoading(true);
+    void fetchSchoolRecords({ data: { schoolId: selectedSchool.id } })
+      .then((result) => {
+        if (!live) return;
+        setStudents(result.records);
+        setEditingStudent(null);
+        setSchoolError("");
+      })
+      .catch((err: unknown) => {
+        if (!live) return;
+        setStudents([]);
+        setSchoolError(err instanceof Error ? err.message : "This school's records could not be loaded.");
+      })
+      .finally(() => {
+        if (live) setRecordsLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [isAdmin, selectedSchool, teacherData.version]);
 
   // Starting a new school year swaps the workspace underneath these screens.
   // The console keeps a small local list for rows it is still editing; clear it
@@ -2297,9 +2360,10 @@ export default function App() {
 
   /** The district's own rows plus everything the schools encoded on `/`. */
   const allStudents = useMemo(() => {
+    if (isAdmin) return students;
     const seen = new Set(students.map(s => s.id));
     return [...students, ...teacherRecords.filter(r => !seen.has(r.id))];
-  }, [students, teacherRecords]);
+  }, [isAdmin, students, teacherRecords]);
 
   const allFeedbacks = useMemo(() => {
     const seen = new Set(feedbacks.map(f => f.id));
@@ -2379,6 +2443,28 @@ export default function App() {
    * arrays are just the not-yet-echoed copy for the current render.
    */
   const saveStudents = (next: Student[]) => {
+    // The Division Office's rows are a per-school window loaded on demand, not
+    // a full copy of the workspace. Persist the diff directly so editing and
+    // deleting still work without the store holding every school's rows.
+    if (isAdmin) {
+      const before = new Map(students.map((row) => [row.id, row]));
+      const after = new Map(next.map((row) => [row.id, row]));
+      for (const row of students) {
+        if (after.has(row.id)) continue;
+        void removeLearnerRecord({ data: { id: row.id } }).catch((err: unknown) => {
+          setSchoolError(err instanceof Error ? err.message : "The learner record was not deleted.");
+        });
+      }
+      for (const row of next) {
+        if (before.get(row.id) === row) continue;
+        if (row.schoolId !== selectedSchool?.id) continue;
+        void saveLearnerRecord({ data: { schoolId: row.schoolId, record: row } }).catch((err: unknown) => {
+          setSchoolError(err instanceof Error ? err.message : "The learner record was not saved.");
+        });
+      }
+      setStudents(next);
+      return;
+    }
     const byId = new Map(next.map(s => [s.id, s]));
     // Rows the schools encoded: edits go back through the same server row.
     for (const owned of teacherRecords) {
@@ -2475,17 +2561,22 @@ export default function App() {
               {schoolError}
             </div>
           )}
-          {view==="district" && <DistrictDashboard students={allStudents} schools={schools}
+          {view==="district" && <DistrictDashboard summary={teacherData.divisionSummary} schools={schools}
             feedbacks={allFeedbacks} activeSy={teacherData.activeSy} onOpenFeedbacks={()=>setView("feedback")} />}
           {view==="feedback" && <Feedbacks feedbacks={allFeedbacks} setFeedbacks={saveFeedbacks}
             schools={schools} defaultSchool={selectedSchool} />}
-          {view==="schools" && <SchoolsList students={allStudents} schools={schools} setSchools={saveSchools}
-            setStudents={saveStudents} onSelect={handleSelectSchool} />}
+          {view==="schools" && <SchoolsList stats={teacherData.recordStats} schools={schools} setSchools={saveSchools}
+            onSelect={handleSelectSchool} />}
           {view==="accounts" && <AccountsPanel theme={t} schools={schools} accounts={teacherData.accounts}
             viewerEmail={teacherData.account?.email ?? ""}
             onChanged={() => access.reload()} />}
           {view==="years" && <SchoolYears theme={t} schools={schools} activeSy={teacherData.activeSy}
             onChanged={() => access.reload()} />}
+          {recordsLoading && selectedSchool && (
+            <div role="status" className="mb-4 p-3 text-xs" style={{ border:`1px solid ${t.border}`, background:t.surface, color:t.sub, borderRadius:4 }}>
+              Loading {selectedSchool.name}'s learner records…
+            </div>
+          )}
           {view==="dashboard" && selectedSchool && <Dashboard students={schoolStudents} school={selectedSchool} activeSy={teacherData.activeSy} />}
           {view==="records" && selectedSchool && <StudentRecords students={schoolStudents}
             setStudents={ss => saveStudents([...allStudents.filter(s=>s.schoolId!==selectedSchool.id),...ss])}
@@ -2495,7 +2586,7 @@ export default function App() {
             activeSy={teacherData.activeSy} />}
           {view==="table" && selectedSchool && <SummaryTable students={schoolStudents} school={selectedSchool} activeSy={teacherData.activeSy} />}
           {view==="analytics" && selectedSchool && <Analytics students={schoolStudents} school={selectedSchool} />}
-          {view==="trash" && <TrashPanel trash={teacherData.trash} schools={schools} />}
+          {view==="trash" && <TrashPanel trash={teacherData.trash} schools={schools} onRestored={() => access.reload()} />}
         </main>
         </div>
 

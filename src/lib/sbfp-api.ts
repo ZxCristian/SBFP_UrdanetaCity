@@ -154,10 +154,27 @@ export const fetchWorkspace = createServerFn({ method: "GET" })
         feedbacks: [],
         trash: [],
         summaryExtras: [],
+        recordStats: [],
+        divisionSummary: null,
         activeSy: await getActiveSchoolYear(sql),
       };
     }
-    const payload = await pullData(sql, access);
+    // Retention is applied on the Division Office's next console load as well
+    // as at the year boundary, so an archive that is already past five years is
+    // removed even if nobody opens the School Years page first. Best effort: a
+    // failed cleanup must not block the dashboard.
+    if (access.scope === "all") {
+      const { purgeExpiredSchoolYears } = await import("./sbfp-years");
+      await purgeExpiredSchoolYears(sql).catch((err) => {
+        console.error("[school-years] archive retention cleanup failed", err);
+      });
+    }
+    // A teacher reads her one school's rows in the workspace. The Division
+    // Office does not: at 58 schools it would ship every learner row on every
+    // poll, so it receives totals and loads a school's records on selection.
+    const payload = await pullData(sql, access, {
+      includeRecords: access.scope !== "all",
+    });
     return { email, account: access.account, ...payload };
   });
 
@@ -178,6 +195,31 @@ export const fetchDataVersion = createServerFn({ method: "GET" })
     const access = email ? await resolveAccess(sql, email) : null;
     if (!access) return { version: "" };
     return { version: await dataVersion(sql, access) };
+  });
+
+export interface SchoolRecordsInput {
+  /** Ignored for a teacher: her own school is always used. */
+  schoolId?: string;
+}
+
+/**
+ * The active-year learner rows for one school. The dashboard uses aggregate
+ * totals; this is opened only when a school is selected, so a division-wide
+ * workspace never has to carry 20,000 learner rows.
+ */
+export const fetchSchoolRecords = createServerFn({ method: "POST" })
+  .validator((input: SchoolRecordsInput) => input)
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) => {
+    const { sql, access } = await requireAccess(await sessionEmail(context));
+    const schoolId = access.scope === "all"
+      ? (typeof data.schoolId === "string" ? data.schoolId : "")
+      : (access.scope[0] ?? "");
+    if (!schoolId) {
+      return { records: [], total: 0 };
+    }
+    const { getSchoolRecords } = await import("./sbfp-accounts");
+    return getSchoolRecords(sql, schoolId);
   });
 
 export interface PreviousBeneficiaryInput {
@@ -217,7 +259,12 @@ export const fetchSchoolYears = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const { sql } = await requireAdmin(await sessionEmail(context));
-    const { listSchoolYears } = await import("./sbfp-years");
+    const { listSchoolYears, purgeExpiredSchoolYears } = await import("./sbfp-years");
+    // Opening this page is also a safe, administrator-authenticated moment to
+    // apply the five-school-year retention rule to older archives.
+    await purgeExpiredSchoolYears(sql).catch((err) => {
+      console.error("[school-years] archive retention cleanup failed", err);
+    });
     return { years: await listSchoolYears(sql) };
   });
 

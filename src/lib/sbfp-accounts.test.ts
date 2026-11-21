@@ -35,6 +35,7 @@ import {
   findAccountByEmail,
   getArchivedYear,
   getSchoolProfile,
+  getSchoolRecords,
   hasAdminAccount,
   lockoutMinutesForFailure,
   hashResetToken,
@@ -60,6 +61,8 @@ import type { Sql } from "./db.ts";
 import {
   getActiveSchoolYear,
   listSchoolYears,
+  purgeExpiredSchoolYears,
+  retentionCutoff,
   SchoolYearError,
   startNewSchoolYear,
 } from "./sbfp-years.ts";
@@ -160,6 +163,7 @@ async function emptyDb(): Promise<PGlite> {
     "0008_sped_school_id.sql",
     "0009_cleanup_load_test_school.sql",
     "0010_teacher_login_lockout.sql",
+    "0011_scale_and_retention.sql",
   ]) {
     await fresh.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -180,6 +184,7 @@ before(async () => {
     "0008_sped_school_id.sql",
     "0009_cleanup_load_test_school.sql",
     "0010_teacher_login_lockout.sql",
+    "0011_scale_and_retention.sql",
   ]) {
     await pg.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -359,6 +364,15 @@ describe("the Division Office account", () => {
     assert.equal(division.accounts.filter((a) => a.schoolId).length, 2);
     assert.deepEqual(division.records.map((r) => r.id).sort(), ["tr_a1", "tr_b1"]);
     assert.equal(division.feedbacks.length, 1);
+
+    // The deployed console asks for totals only, then opens one school.
+    const light = await pullData(sql, adminAccess, { includeRecords: false });
+    assert.deepEqual(light.records, [], "the division workspace does not ship raw learner rows");
+    assert.ok(light.divisionSummary, "the dashboard totals still arrive");
+    assert.equal(light.divisionSummary.all.learners, 2);
+    assert.equal(light.recordStats.find((row) => row.schoolId === SCHOOL_A)?.records, 1);
+    const oneSchool = await getSchoolRecords(sql, SCHOOL_A);
+    assert.deepEqual(oneSchool.records.map((r) => r.id), ["tr_a1"]);
   });
 
   it("sees only her own school as a teacher", async () => {
@@ -1074,6 +1088,16 @@ describe("school years", () => {
     await diff.close();
   });
 
+  it("keeps the active year plus four archived years", () => {
+    assert.equal(retentionCutoff("2030-2031"), "2026-2027");
+    assert.equal(retentionCutoff("2030-2031", 3), "2028-2029");
+    assert.equal(retentionCutoff("not-a-year"), null);
+  });
+
+  it("purges nothing while the archive is still inside the window", async () => {
+    assert.deepEqual(await purgeExpiredSchoolYears(db), []);
+  });
+
   it("starts on the year the existing records carry", async () => {
     assert.equal(await getActiveSchoolYear(db), "2025-2026");
     const years = await listSchoolYears(db);
@@ -1239,6 +1263,18 @@ describe("school years", () => {
       (err: unknown) => err instanceof SchoolYearError && err.code === "year_not_found",
     );
     assert.equal(await getActiveSchoolYear(db), "2026-2027");
+  });
+
+  it("deletes only archived years older than the retention window", async () => {
+    await db`insert into sbfp_school_years (sy, closed_at) values ('2019-2020', now())`;
+    await db`insert into sbfp_records (id, school_id, sy) values ('old_record', 'es01', '2019-2020')`;
+    const removed = await purgeExpiredSchoolYears(db);
+    assert.ok(removed.includes("2019-2020"));
+
+    const kept = await db<{ sy: string }>`select sy from sbfp_school_years order by sy`;
+    assert.equal(kept.some((row) => row.sy === "2019-2020"), false);
+    const records = await db<{ id: string }>`select id from sbfp_records where id = 'old_record'`;
+    assert.deepEqual(records, []);
   });
 
   it("can close a second year and keep all three readable", async () => {
