@@ -599,16 +599,7 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
         {/* On a phone the sign-in card comes first, so school personnel who
             already have an account do not scroll past the introduction to reach it. */}
         <div className="order-2 lg:order-1">
-          <div className="flex items-center gap-3">
-            <img src="/school-health-wheel.svg" alt="" width={46} height={46} />
-            <div>
-              <div style={{ fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: C.gold, fontWeight: 700 }}>
-                Department of Education
-              </div>
-              <div style={{ fontSize: 13, color: C.sub }}>Urdaneta City Schools Division Office</div>
-            </div>
-          </div>
-          <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)", lineHeight: 1.15, fontWeight: 600, marginTop: 22, color: C.text }}>
+          <h1 style={{ fontSize: "clamp(26px, 7vw, 34px)", lineHeight: 1.15, fontWeight: 600, color: C.text }}>
             SBFP School Portal
           </h1>
           <p style={{ fontSize: 15, color: C.sub, marginTop: 12, maxWidth: 520, lineHeight: 1.65 }}>
@@ -657,10 +648,7 @@ function TeacherSignIn({ notice }: { notice?: ReactNode }) {
           </div>
 
           <div style={{ fontSize: 12, color: C.dim, marginTop: 18 }}>
-            One account per school, for every school in the division.{" "}
-            <a href="/Admin" style={{ color: C.navy, fontWeight: 600, textDecoration: "none" }}>
-              Division Office sign in →
-            </a>
+            One account per school, for every school in the division.
           </div>
         </div>
 
@@ -782,11 +770,6 @@ function NoAccountNotice({ access }: { access: Access }) {
         )}
       </p>
       <div className="mt-4 flex items-center gap-3 flex-wrap">
-        {access.status === "admin" && (
-          <a href="/Admin" style={{ textDecoration: "none" }}>
-            <Button small>Division Console →</Button>
-          </a>
-        )}
         <UserButton redirectTo="/" />
       </div>
     </Card>

@@ -24,7 +24,7 @@ export const Route = createFileRoute("/")({
     typeof search.reset === "string" && search.reset ? { reset: search.reset } : {},
   head: () => ({
     meta: [
-      { title: "SBFP School Portal · Urdaneta City Schools" },
+      { title: "SBFP School Portal" },
       {
         name: "description",
         content:
