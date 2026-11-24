@@ -1624,6 +1624,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
 }) {
   const t = useT();
   const [period, setPeriod] = useState<Period|"All">("All");
+  const [cohort, setCohort] = useState<"All"|"Regular"|"SPED">("All");
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -1631,16 +1632,21 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
   /** The learner whose ✕ was clicked — nothing is removed until this is confirmed. */
   const [pendingDelete, setPendingDelete] = useState<Student | null>(null);
 
+  /** Only the division's SPED center offers the Regular / SPED split. */
+  const cohortFilter = isSpedSchool(school) ? cohort : "All";
   const uniqueStudentCount = useMemo(() => uniqueCount(students), [students]);
 
   const filtered = useMemo(() => {
-    const list = students.filter(
-      s => (period === "All" || s.period === period) &&
-        (s.name.toLowerCase().includes(search.toLowerCase()) || s.gradeLevel.toLowerCase().includes(search.toLowerCase()))
-    );
+    const list = students.filter(s => {
+      if (period !== "All" && s.period !== period) return false;
+      if (cohortFilter === "SPED" && !s.gradeLevel.startsWith("SPED")) return false;
+      if (cohortFilter === "Regular" && s.gradeLevel.startsWith("SPED")) return false;
+      return s.name.toLowerCase().includes(search.toLowerCase()) ||
+        s.gradeLevel.toLowerCase().includes(search.toLowerCase());
+    });
     return sortRecords(list);
-  }, [students, period, search]);
-  useEffect(() => setPage(0), [period, search]);
+  }, [students, period, search, cohortFilter]);
+  useEffect(() => setPage(0), [period, search, cohortFilter]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const visiblePage = filtered.slice(safePage * pageSize, safePage * pageSize + pageSize);
@@ -1697,6 +1703,20 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
             {p}
           </button>
         ))}
+        {isSpedSchool(school) && (
+          <div className="flex items-center gap-1.5 ml-auto" role="group" aria-label="Learner cohort">
+            <span className="text-[9px] tracking-widest uppercase" style={{ color: t.dim }}>Cohort</span>
+            {(["All", "Regular", "SPED"] as const).map(c => (
+              <button key={c} type="button" aria-pressed={cohort === c} onClick={() => setCohort(c)}
+                className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
+                style={cohort === c
+                  ? { background: t.accentBg, color: t.accent, borderColor: t.accent + "40" }
+                  : { background: t.surface, color: t.dim, borderColor: t.border }}>
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <p className="text-[10px] md:hidden -mb-2" style={{ color: t.dim }}>
         Swipe the table sideways to see every column →
