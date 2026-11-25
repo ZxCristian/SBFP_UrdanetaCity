@@ -1653,7 +1653,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
 
   const del = (id: string) => setStudents(students.filter(s => s.id !== id));
   const th: CSSProperties = {
-    color: t.dim, borderRight: `1px solid ${t.border}`, borderBottom: `1px solid ${t.border}`,
+    color: t.sub, borderRight: `1px solid ${t.border}`, borderBottom: `1px solid ${t.border}`,
     background: t.surfaceDeep, verticalAlign: "middle",
   };
   const td = (v: string | number, opts?: { mono?: boolean; color?: string; nowrap?: boolean }) => (
@@ -1667,28 +1667,46 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: t.text }}>Student Records</h1>
-          <p className="text-xs mt-0.5" style={{ color: t.dim }}>
+          <p className="text-xs mt-0.5" style={{ color: t.sub }}>
             {school.name} · SBFP Form 1A · sorted Kinder → Grade 6 · {uniqueStudentCount} students · {students.length} period records
           </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={async () => { setExporting(true); try { const { exportStudentsToExcel } = await import("@/lib/sbfp-export"); await exportStudentsToExcel(school, filtered, period === "All" ? "All" : period, activeSy); } finally { setExporting(false); } }}
-            disabled={filtered.length === 0}
-            className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer border transition-colors"
-            style={{
-              background: filtered.length === 0 ? t.surface2 : t.surface,
-              color: filtered.length === 0 ? t.faint : t.accent,
-              borderColor: filtered.length === 0 ? t.border : t.accent + "60",
-              cursor: filtered.length === 0 ? "not-allowed" : "pointer",
-            }}
-          >
-            {exporting ? "Exporting…" : "↓ Export Excel"}
-          </button>
-          <button onClick={() => setView("entry")} className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer" style={{ background: t.accent, color: t.accentText }}>+ Add Student</button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={async () => { setExporting(true); try { const { exportStudentsToExcel } = await import("@/lib/sbfp-export"); await exportStudentsToExcel(school, filtered, period === "All" ? "All" : period, activeSy); } finally { setExporting(false); } }}
+              disabled={filtered.length === 0}
+              className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer border transition-colors"
+              style={{
+                background: filtered.length === 0 ? t.surface2 : t.surface,
+                color: filtered.length === 0 ? t.sub : t.accent,
+                borderColor: filtered.length === 0 ? t.border : t.accent + "60",
+                cursor: filtered.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              {exporting ? "Exporting…" : "↓ Export Excel"}
+            </button>
+            <button onClick={() => setView("entry")} className="px-4 py-2 text-sm font-semibold rounded-sm cursor-pointer" style={{ background: t.accent, color: t.accentText }}>+ Add Student</button>
+          </div>
+          {isSpedSchool(school) && (
+            <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label="Learner cohort">
+              <span className="text-[9px] tracking-widest uppercase" style={{ color: t.sub }}>Cohort</span>
+              <div className="flex gap-1.5">
+                {(["All", "Regular", "SPED"] as const).map(c => (
+                  <button key={c} type="button" aria-pressed={cohort === c} onClick={() => setCohort(c)}
+                    className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
+                    style={cohort === c
+                      ? { background: t.accent, color: t.accentText, borderColor: t.accent }
+                      : { background: t.surface, color: t.sub, borderColor: t.border }}>
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex gap-2 flex-wrap">
@@ -1698,27 +1716,13 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
         {(["All", ...PERIODS] as const).map(p => (
           <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
             style={period === p
-              ? p === "All" ? { background: t.accentBg, color: t.accent, borderColor: t.accent + "40" } : { background: t.period[p as Period] + "20", color: t.period[p as Period], borderColor: t.period[p as Period] + "40" }
-              : { background: t.surface, color: t.dim, borderColor: t.border }}>
+              ? p === "All" ? { background: t.accent, color: t.accentText, borderColor: t.accent } : { background: t.period[p as Period], color: t.accentText, borderColor: t.period[p as Period] }
+              : { background: t.surface, color: t.sub, borderColor: t.border }}>
             {p}
           </button>
         ))}
-        {isSpedSchool(school) && (
-          <div className="flex items-center gap-1.5 ml-auto" role="group" aria-label="Learner cohort">
-            <span className="text-[9px] tracking-widest uppercase" style={{ color: t.dim }}>Cohort</span>
-            {(["All", "Regular", "SPED"] as const).map(c => (
-              <button key={c} type="button" aria-pressed={cohort === c} onClick={() => setCohort(c)}
-                className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
-                style={cohort === c
-                  ? { background: t.accentBg, color: t.accent, borderColor: t.accent + "40" }
-                  : { background: t.surface, color: t.dim, borderColor: t.border }}>
-                {c}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
-      <p className="text-[10px] md:hidden -mb-2" style={{ color: t.dim }}>
+      <p className="text-[10px] md:hidden -mb-2" style={{ color: t.sub }}>
         Swipe the table sideways to see every column →
       </p>
       <div style={{ border: `1px solid ${t.border}`, background: t.surface }} className="overflow-x-auto">
@@ -1809,7 +1813,7 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
               );
             })}
             {filtered.length === 0 && (
-              <tr><td colSpan={21} className="px-4 py-10 text-center text-sm" style={{ color: t.faint }}>No students found.</td></tr>
+              <tr><td colSpan={21} className="px-4 py-10 text-center text-sm" style={{ color: t.sub }}>No students found.</td></tr>
             )}
           </tbody>
         </table>
@@ -1817,17 +1821,17 @@ function StudentRecords({ students, setStudents, school, setView, onEdit, active
 
       {filtered.length > pageSize && (
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-[11px]" style={{ color: t.dim }}>
+          <span className="text-[11px]" style={{ color: t.sub }}>
             Showing {safePage * pageSize + 1}–{Math.min(filtered.length, (safePage + 1) * pageSize)} of {filtered.length} filtered records
           </span>
           <div className="flex items-center gap-2">
             <button type="button" disabled={safePage === 0} onClick={() => setPage(safePage - 1)}
-              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:safePage===0?t.faint:t.sub, background:t.surface, cursor:safePage===0?"not-allowed":"pointer" }}>
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:t.sub, background:safePage===0?t.surface2:t.surface, cursor:safePage===0?"not-allowed":"pointer" }}>
               ← Previous
             </button>
-            <span className="text-[11px]" style={{ color:t.dim }}>Page {safePage + 1} / {pageCount}</span>
+            <span className="text-[11px]" style={{ color:t.sub }}>Page {safePage + 1} / {pageCount}</span>
             <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(safePage + 1)}
-              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:safePage>=pageCount-1?t.faint:t.sub, background:t.surface, cursor:safePage>=pageCount-1?"not-allowed":"pointer" }}>
+              className="px-3 py-1.5 text-xs rounded-sm border" style={{ borderColor:t.border, color:t.sub, background:safePage>=pageCount-1?t.surface2:t.surface, cursor:safePage>=pageCount-1?"not-allowed":"pointer" }}>
               Next →
             </button>
           </div>
