@@ -19,8 +19,10 @@ import pg from "pg";
 import { pendingMigrations } from "./migration-plan.mjs";
 import { databaseUrlFromEnv, pgPoolOptions } from "./pg-connection.mjs";
 
-// `SUPABASE_DB_URL` wins over a platform-provisioned `DATABASE_URL`.
 const databaseUrl = databaseUrlFromEnv(process.env);
+
+// Deploy script robustness: missing database env is the normal case for local
+// and preview builds, and it must not fail the deploy pipeline.
 if (!databaseUrl) {
   console.log(
     "[migrate] no database URL (SUPABASE_DB_URL / DATABASE_URL) — skipping (the PGLite fallback migrates itself).",
@@ -38,6 +40,7 @@ async function main() {
     console.log("[migrate] no migrations/ directory — nothing to do.");
     return;
   }
+
   // An app with no schema of its own must not pay for a database connection.
   if (pendingMigrations(entries, []).length === 0) {
     console.log("[migrate] no migrations — nothing to do.");
@@ -85,7 +88,11 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[migrate] failed:", err?.message || err);
+  // A configured database that cannot be reached is a real failure: exiting 0
+  // here would deploy an app whose schema was never applied. The no-URL case is
+  // already handled above (local/preview builds skip cleanly).
+  const message = err?.message || String(err);
+  console.error("[migrate] failed:", message);
   // pg errors carry the context needed to debug a bad SQL file.
   for (const key of ["code", "detail", "hint", "position", "where"]) {
     if (err?.[key] != null) console.error(`[migrate]   ${key}: ${err[key]}`);

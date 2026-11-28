@@ -20,7 +20,7 @@
  * `process.env`, which is why the merge has to happen before Vite starts.
  */
 import { spawn } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,17 +80,27 @@ export function mergeAppEnv(appEnv, processEnv) {
  * arguments and signals go straight to the process.
  */
 export function commandSpawn(command, args, env, platform = process.platform) {
-  const bare = !command.includes("/") && !command.includes("\\");
+  // Deploy builders commonly lack `node_modules/.bin` on PATH. Resolve a bare
+  // `vite` to the installed bin when it exists — but never on Windows, where
+  // the runnable entry is `vite.cmd` and only the cmd.exe branch below can
+  // launch it; resolving to the extensionless path there would fail with ENOENT.
+  const localBin = join(process.cwd(), "node_modules", ".bin", "vite");
+  const resolved =
+    command === "vite" && platform !== "win32" && existsSync(localBin)
+      ? localBin
+      : command;
+
+  const bare = !resolved.includes("/") && !resolved.includes("\\");
   if (platform === "win32" && bare) {
     const comspec = env.ComSpec || env.COMSPEC || "cmd.exe";
     // The command line Node's own `shell: true` builds on Windows.
     return {
       file: comspec,
-      args: ["/d", "/s", "/c", `"${[command, ...args].join(" ")}"`],
+      args: ["/d", "/s", "/c", `"${[resolved, ...args].join(" ")}"`],
       options: { stdio: "inherit", env, windowsVerbatimArguments: true },
     };
   }
-  return { file: command, args, options: { stdio: "inherit", env } };
+  return { file: resolved, args, options: { stdio: "inherit", env } };
 }
 
 /**

@@ -1,4 +1,8 @@
 node_modules/
+
+dist/
+*.tsbuildinfo
+
 .project_id
 .github_repo
 .env

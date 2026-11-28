@@ -1,19 +1,18 @@
 /**
  * Invisible daily keep-alive touch for the Supabase database.
  *
- * One authenticated DB write per day that records a timestamp so the project is
- * less likely to be scored as inactive by Supabase's free-plan auto-pause. It
- * writes to a small app table (`sbfp_keepalive`) that is part of the normal
- * migration schema, never rendered in the app, and never exposed to the
- * School Portal or Division Console UI.
+ * One DB write per day records a timestamp so the project is less likely to be
+ * scored as inactive by Supabase's free-plan auto-pause. It writes to a small
+ * app table (`sbfp_keepalive`) that is part of the normal migration schema,
+ * never rendered in the app, and never exposed to the School Portal or Division
+ * Console UI.
  *
  * There is no in-app scheduler here: TanStack Start + Vercel serverless have no
  * long-lived cron. This endpoint exists so an external timer (Vercel Cron, a
  * worker, or a one-line curl loop) can call it once a day.
  */
 import { createFileRoute } from '@tanstack/react-router';
-import { auth } from '@/lib/auth/server';
-import { keepAliveWrite } from '@/lib/sbfp-keepalive';
+import { keepAliveAuthorized, keepAliveWrite } from '@/lib/sbfp-keepalive';
 
 export const Route = createFileRoute('/api/keep-alive-daily')({
   server: {
@@ -25,17 +24,17 @@ export const Route = createFileRoute('/api/keep-alive-daily')({
 });
 
 async function handleKeepAlive(request: Request) {
-  const response = await auth.handler(request);
-
-  if ((response.status !== 200) || ((response.headers.get('content-type')?.startsWith('text/html')) ?? false)) {
-    return response;
+  if (!keepAliveAuthorized(request)) {
+    return new Response(JSON.stringify({ ok: false, error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
   }
 
   try {
-    const written = await keepAliveWrite();
+    await keepAliveWrite();
     return new Response(JSON.stringify({
       ok: true,
-      wrote: written ? new Date().toISOString() : null,
       ts: new Date().toISOString(),
     }), {
       status: 200,
