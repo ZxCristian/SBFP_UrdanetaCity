@@ -466,10 +466,18 @@ function AdminPanel({
                   }
                   setClaiming(true);
                   setError("");
-                  const result = await claimAdminAccount({ data: { fullName: fullName.trim() } });
-                  setClaiming(false);
-                  if (!result.ok) setError(result.message);
-                  else access.reload();
+                  try {
+                    const result = await claimAdminAccount({ data: { fullName: fullName.trim() } });
+                    if (!result.ok) setError(result.message);
+                    else access.reload();
+                  } catch (err) {
+                    console.error("[claim-admin] the request failed", err);
+                    setError(
+                      "The Division Office account could not be created just now. Try again in a moment.",
+                    );
+                  } finally {
+                    setClaiming(false);
+                  }
                 }}
               >
                 Make this the Division Office account
@@ -970,21 +978,28 @@ function BootstrapForm({
         e.preventDefault();
         setError("");
         setCreating(true);
-        const result = await bootstrapAdminAccount({
-          data: {
-            fullName: fullName.trim() || email.trim(),
-            email: email.trim(),
-            password,
-          },
-        });
-        if (!result.ok) {
+        try {
+          const result = await bootstrapAdminAccount({
+            data: {
+              fullName: fullName.trim() || email.trim(),
+              email: email.trim(),
+              password,
+            },
+          });
+          if (!result.ok) {
+            setError(result.message);
+            return;
+          }
+          const signedIn = await afterCreate(email.trim(), password);
+          if (!signedIn) setError("The account was created — now sign in with it.");
+        } catch (err) {
+          console.error("[bootstrap-admin] the request failed", err);
+          setError(
+            "The Division Office account could not be created just now. Try again in a moment.",
+          );
+        } finally {
           setCreating(false);
-          setError(result.message);
-          return;
         }
-        const signedIn = await afterCreate(email.trim(), password);
-        setCreating(false);
-        if (!signedIn) setError("The account was created — now sign in with it.");
       }}
     >
       <Field text="Account holder">

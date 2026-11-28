@@ -72,7 +72,17 @@ export function useEmailSignIn(options: {
       await syncWorkspace(email.trim().toLowerCase(), true);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed.");
+      // A transport failure is not a credential problem, and its internal name
+      // ("HTTPError", "Failed to fetch") tells the person at the form nothing.
+      // Keep the real error in the console for whoever is debugging, and say
+      // something usable here.
+      console.error("[sign-in] the request failed", err);
+      const raw = err instanceof Error ? err.message.trim() : "";
+      setError(
+        !raw || /^(HTTPError|Failed to fetch|Load failed|NetworkError)$/i.test(raw)
+          ? "The sign-in service could not be reached. Try again in a moment."
+          : raw,
+      );
       return false;
     } finally {
       setBusy(false);
