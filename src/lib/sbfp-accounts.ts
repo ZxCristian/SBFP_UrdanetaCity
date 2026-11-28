@@ -376,16 +376,18 @@ export async function createAccount(
   const fullName = (input.fullName?.trim() ?? "").slice(0, 120);
   const position = (input.position?.trim() ?? "").slice(0, 120);
   const contact = (input.contact?.trim() ?? "").slice(0, 160);
-  await sql`
-    insert into "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-    values (${userId}, ${name}, ${email}, true, now(), now())
-  `;
-  try {
-    await sql`
+  // The identity, its credential, and the authorization row are one account.
+  // A failure in any of the three must not leave a half-created login behind.
+  await sql.transaction(async (tx) => {
+    await tx`
+      insert into "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+      values (${userId}, ${name}, ${email}, true, now(), now())
+    `;
+    await tx`
       insert into "account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
       values (${randomUUID()}, ${userId}, 'credential', ${userId}, ${password}, now(), now())
     `;
-    await sql`
+    await tx`
       insert into sbfp_accounts
         (email, role, full_name, position, contact, school_id, status, temp_password, created_at, updated_at)
       values (
@@ -394,11 +396,7 @@ export async function createAccount(
         'active', ${input.tempPassword ?? input.role === "teacher"}, now(), now()
       )
     `;
-  } catch (err) {
-    // Never leave an identity behind that nothing can authorize.
-    await sql`delete from "user" where "id" = ${userId}`.catch(() => undefined);
-    throw err;
-  }
+  });
 
   const created = await findAccountByEmail(sql, email);
   if (!created) throw new AccountError("not_found", "The account could not be created.");
@@ -571,7 +569,7 @@ export function lockoutMinutesForFailure(failures: number): number {
   return failures - 4;
 }
 
-/** The lockout state of a teacher account, or null for any other account. */
+/** The lockout state of an SBFP account, or null when no account is issued. */
 export async function teacherLoginState(
   sql: Sql,
   email: string,
@@ -587,7 +585,7 @@ export async function teacherLoginState(
     where lower(email) = ${normalizeEmail(email)}
   `;
   const row = rows[0];
-  if (!row || row.role !== "teacher") return null;
+  if (!row) return null;
   return loginStateFromRow(row);
 }
 
@@ -624,19 +622,26 @@ export async function recordTeacherLoginFailure(
   }>`
     update sbfp_accounts set
       failed_login_count = failed_login_count + 1,
+      -- A teacher account is put on hold after ten wrong passwords so the
+      -- Division Office can intervene. An admin account must never auto-disable
+      -- this way: if it were the only admin, that would permanently lock the
+      -- Division Office out of its own console. Admins keep escalating cooldowns
+      -- instead, and a successful sign-in clears the streak.
       status = case
-        when failed_login_count + 1 >= 10 then 'disabled'
+        when role = 'teacher' and failed_login_count + 1 >= 10 then 'disabled'
         else status
       end,
       lockout_until = case
-        when failed_login_count + 1 >= 10 then null
+        when role = 'teacher' and failed_login_count + 1 >= 10 then null
         when failed_login_count + 1 >= 5
-          then now() + (failed_login_count + 1 - 4) * interval '1 minute'
+          -- Cap the cooldown so one attacker cannot keep the console locked
+          -- forever by extending an ever-growing window.
+          then now() + least(failed_login_count + 1 - 4, 15) * interval '1 minute'
         else null
       end,
       updated_at = now()
     where lower(email) = ${normalizeEmail(email)}
-      and role = 'teacher'
+      and role in ('teacher', 'admin')
       and status = 'active'
     returning role, status, failed_login_count, lockout_until
   `;
@@ -653,7 +658,55 @@ export async function clearTeacherLoginFailures(
       failed_login_count = 0,
       lockout_until = null,
       updated_at = now()
-    where lower(email) = ${normalizeEmail(email)} and role = 'teacher'
+    where lower(email) = ${normalizeEmail(email)}
+  `;
+}
+
+/**
+ * The credential/session/account writes shared by both password-reset paths.
+ * The caller supplies the transaction, so a failure on any statement rolls
+ * back the password change *and* the token consumption together.
+ */
+async function resetPasswordTx(
+  tx: Sql,
+  account: AccountRow,
+  hash: string,
+  tempPassword: boolean,
+): Promise<void> {
+  const email = normalizeEmail(account.email);
+  const state = await credentialState(tx, email);
+  let userId = state?.userId ?? null;
+  if (!userId) {
+    userId = randomUUID();
+    await tx`
+      insert into "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+      values (${userId}, ${account.fullName || account.email}, ${account.email}, true, now(), now())
+    `;
+  }
+  await tx`
+    update "account" set "password" = ${hash}, "updatedAt" = now()
+    where "userId" = ${userId} and "providerId" = 'credential'
+  `;
+  // A password change has to end every session it was changed away from —
+  // otherwise a stolen session, or the one on an old phone, keeps working with
+  // the password that was just replaced. Sessions cascade with the identity.
+  await tx`delete from "session" where "userId" = ${userId}`;
+  const hasCredential = await tx<{ id: string }>`
+    select "id" from "account" where "userId" = ${userId} and "providerId" = 'credential'
+  `;
+  if (!hasCredential[0]) {
+    await tx`
+      insert into "account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
+      values (${randomUUID()}, ${userId}, 'credential', ${userId}, ${hash}, now(), now())
+    `;
+  }
+  await tx`
+    update sbfp_accounts set
+      temp_password = ${tempPassword},
+      failed_login_count = 0,
+      lockout_until = null,
+      updated_at = now()
+    where lower(email) = ${email}
   `;
 }
 
@@ -673,47 +726,16 @@ export async function resetPassword(
   sql: Sql,
   email: string,
   password: string,
+  options: { tempPassword?: boolean } = {},
 ): Promise<AccountRow> {
   const problem = passwordProblem(password);
   if (problem) throw new AccountError("weak_password", problem);
   const account = await findAccountByEmail(sql, email);
   if (!account) throw new AccountError("not_found", "That account no longer exists.");
-
-  const state = await credentialState(sql, email);
-  let userId = state?.userId ?? null;
-  if (!userId) {
-    userId = randomUUID();
-    await sql`
-      insert into "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
-      values (${userId}, ${account.fullName || account.email}, ${account.email}, true, now(), now())
-    `;
-  }
   const hash = await hashPassword(password);
-  await sql`
-    update "account" set "password" = ${hash}, "updatedAt" = now()
-    where "userId" = ${userId} and "providerId" = 'credential'
-  `;
-  // A password change has to end every session it was changed away from —
-  // otherwise a stolen session, or the one on an old phone, keeps working with
-  // the password that was just replaced. Sessions cascade with the identity.
-  await sql`delete from "session" where "userId" = ${userId}`;
-  const hasCredential = await sql<{ id: string }>`
-    select "id" from "account" where "userId" = ${userId} and "providerId" = 'credential'
-  `;
-  if (!hasCredential[0]) {
-    await sql`
-      insert into "account" ("id", "accountId", "providerId", "userId", "password", "createdAt", "updatedAt")
-      values (${randomUUID()}, ${userId}, 'credential', ${userId}, ${hash}, now(), now())
-    `;
-  }
-  await sql`
-    update sbfp_accounts set
-      temp_password = true,
-      failed_login_count = 0,
-      lockout_until = null,
-      updated_at = now()
-    where lower(email) = ${normalizeEmail(email)}
-  `;
+  await sql.transaction(async (tx) => {
+    await resetPasswordTx(tx, account, hash, options.tempPassword ?? true);
+  });
   const after = await findAccountByEmail(sql, email);
   if (!after) throw new AccountError("not_found", "That account no longer exists.");
   return after;
@@ -727,10 +749,7 @@ export async function changeOwnPassword(
 ): Promise<void> {
   const problem = passwordProblem(password);
   if (problem) throw new AccountError("weak_password", problem);
-  await resetPassword(sql, email, password);
-  await sql`
-    update sbfp_accounts set temp_password = false where lower(email) = ${normalizeEmail(email)}
-  `;
+  await resetPassword(sql, email, password, { tempPassword: false });
 }
 
 // ── Emailed password reset ────────────────────────────────────────────────────
@@ -772,17 +791,13 @@ export async function createPasswordReset(
   const account = accounts[0];
   if (!account) return null;
 
-  const recent = await sql<{ recent: boolean }>`
-    select (requested_at > now() - interval '60 seconds') as recent
-    from sbfp_admin_password_resets
-    where lower(email) = ${normalized}
-  `;
-  if (recent[0]?.recent) return null;
-
   // Expired rows are dead weight; clear them as we go.
   await sql`delete from sbfp_admin_password_resets where expires_at < now()`;
 
   const token = randomBytes(32).toString("base64url");
+  // The cooldown is part of the upsert, not a separate read-then-write: two
+  // simultaneous requests must not both mint a link. The no-op update returns
+  // no row, which is the same neutral answer as "no account".
   const rows = await sql<{ expires_at: string | Date }>`
     insert into sbfp_admin_password_resets (email, token_hash, expires_at, requested_at)
     values (${account.email}, ${hashResetToken(token)}, now() + interval '30 minutes', now())
@@ -790,13 +805,15 @@ export async function createPasswordReset(
       token_hash = excluded.token_hash,
       expires_at = excluded.expires_at,
       requested_at = now()
+    where sbfp_admin_password_resets.requested_at <= now() - interval '60 seconds'
     returning expires_at
   `;
+  if (!rows[0]) return null;
   return {
     email: account.email,
     role: account.role === "admin" ? "admin" : "teacher",
     token,
-    expiresAt: isoOf(rows[0]?.expires_at),
+    expiresAt: isoOf(rows[0].expires_at),
   };
 }
 
@@ -815,33 +832,37 @@ export async function resetPasswordWithToken(
 ): Promise<{ email: string; role: AccountRole }> {
   const problem = passwordProblem(password);
   if (problem) throw new AccountError("weak_password", problem);
+  const hash = await hashPassword(password);
 
-  const consumed = await sql<{ email: string }>`
-    delete from sbfp_admin_password_resets
-    where token_hash = ${hashResetToken(token)} and expires_at > now()
-    returning email
-  `;
-  const email = consumed[0]?.email;
-  if (!email) {
-    throw new AccountError(
-      "reset_token_invalid",
-      "That reset link is invalid or has expired. Request a new one.",
-    );
-  }
+  // Consuming the one-use token and changing the password are one transaction:
+  // a database failure must not leave the visitor holding a dead link and an
+  // unchanged password. Concurrent submissions still race on the same DELETE,
+  // so only one can succeed.
+  return sql.transaction(async (tx) => {
+    const consumed = await tx<{ email: string }>`
+      delete from sbfp_admin_password_resets
+      where token_hash = ${hashResetToken(token)} and expires_at > now()
+      returning email
+    `;
+    const email = consumed[0]?.email;
+    if (!email) {
+      throw new AccountError(
+        "reset_token_invalid",
+        "That reset link is invalid or has expired. Request a new one.",
+      );
+    }
 
-  const account = await findAccountByEmail(sql, email);
-  if (!account || account.status !== "active") {
-    throw new AccountError(
-      "reset_token_invalid",
-      "That reset link is invalid or has expired. Request a new one.",
-    );
-  }
+    const account = await findAccountByEmail(tx, email);
+    if (!account || account.status !== "active") {
+      throw new AccountError(
+        "reset_token_invalid",
+        "That reset link is invalid or has expired. Request a new one.",
+      );
+    }
 
-  await resetPassword(sql, email, password);
-  await sql`
-    update sbfp_accounts set temp_password = false where lower(email) = ${normalizeEmail(email)}
-  `;
-  return { email, role: account.role };
+    await resetPasswordTx(tx, account, hash, false);
+    return { email, role: account.role };
+  });
 }
 
 /**
@@ -904,9 +925,13 @@ export async function deleteAccount(sql: Sql, email: string): Promise<void> {
       "This is the only Division Office account — create another before removing it.",
     );
   }
-  // Sessions and linked identities cascade with the identity row.
-  await sql`delete from "user" where lower("email") = ${normalizeEmail(email)}`;
-  await sql`delete from sbfp_accounts where lower(email) = ${normalizeEmail(email)}`;
+  // Sessions and linked identities cascade with the identity row. The
+  // authorization row must go with it, or a retry would see an account whose
+  // login identity no longer exists.
+  await sql.transaction(async (tx) => {
+    await tx`delete from "user" where lower("email") = ${normalizeEmail(email)}`;
+    await tx`delete from sbfp_accounts where lower(email) = ${normalizeEmail(email)}`;
+  });
 }
 
 // ── School form headers ───────────────────────────────────────────────────────
@@ -1091,26 +1116,25 @@ function toTrashed(row: TrashedDbRow): TrashedRecord {
   };
 }
 
-/** Add or update one learner record for `schoolId` (already authorized). */
-export async function upsertRecord(
-  sql: Sql,
-  schoolId: string,
-  record: RecordInput,
-  encodedBy?: string,
-): Promise<void> {
-  // The year is the server's, not the browser's: a record typed on the last day
-  // of one school year and saved on the first day of the next belongs to the
-  // year the district is working in. This also stops an edited form from moving
-  // an archived row into the active year.
+/** Maximum rows accepted by one bulk import transaction. */
+export const MAX_IMPORT_ROWS = 1000;
+
+/**
+ * Validate and normalize one learner row. Shared by the single-row and bulk
+ * writes so the two paths cannot disagree about what is stored.
+ */
+function sanitizeRecord(record: RecordInput): RecordInput {
   const problem = learnerProblem(record);
   if (problem) throw new AccountError("invalid_record", problem);
   // The form fields are free text, so cap every stored string. Without this a
   // single crafted request could store megabytes in one row and make every
   // later export/read pay for it.
   const text = (value: unknown, max: number) => String(value ?? "").trim().slice(0, max);
-  const clean: RecordInput = {
+  const id = text(record.id, 120);
+  if (!id) throw new AccountError("invalid_record", "A learner record needs an id.");
+  return {
     ...record,
-    id: text(record.id, 120),
+    id,
     period: text(record.period, 20) as RecordInput["period"],
     sy: text(record.sy, 20),
     name: text(record.name, 120),
@@ -1134,6 +1158,20 @@ export async function upsertRecord(
     fourPs: text(record.fourPs, 3) as RecordInput["fourPs"],
     sbfpPreviousYears: text(record.sbfpPreviousYears, 3) as RecordInput["sbfpPreviousYears"],
   };
+}
+
+/** Add or update one learner record for `schoolId` (already authorized). */
+export async function upsertRecord(
+  sql: Sql,
+  schoolId: string,
+  record: RecordInput,
+  encodedBy?: string,
+): Promise<void> {
+  // The year is the server's, not the browser's: a record typed on the last day
+  // of one school year and saved on the first day of the next belongs to the
+  // year the district is working in. This also stops an edited form from moving
+  // an archived row into the active year.
+  const clean = sanitizeRecord(record);
   // Encoding rule, enforced server-side as well as in the forms: a male learner
   // is recorded as not pregnant. A female learner aged 10 or below defaults to
   // "No" in the form but is not locked, so an explicit "Yes" is preserved here.
@@ -1181,6 +1219,118 @@ export async function upsertRecord(
     where sbfp_records.school_id = excluded.school_id
       and sbfp_records.deleted_at is null
   `;
+}
+
+/**
+ * Save a whole imported class in one database round trip.
+ *
+ * The previous import path issued one server function (and one pool checkout)
+ * per row. A 500-row workbook therefore created hundreds of concurrent requests
+ * and could hit Supabase's connection ceiling, saving only part of the class.
+ * `jsonb_to_recordset` lets PostgreSQL validate and upsert the entire batch in a
+ * single atomic statement instead: one authorization check, one transaction,
+ * and no partial import if any row or the connection fails.
+ */
+export async function upsertRecords(
+  sql: Sql,
+  schoolId: string,
+  records: RecordInput[],
+  encodedBy?: string,
+): Promise<{ saved: number; activeSy: string }> {
+  if (!schoolId) throw new AccountError("not_found", "No school is set for this import.");
+  if (!Array.isArray(records) || records.length === 0) {
+    throw new AccountError("invalid_record", "There are no learner rows to import.");
+  }
+  if (records.length > MAX_IMPORT_ROWS) {
+    throw new AccountError(
+      "invalid_record",
+      `Import at most ${MAX_IMPORT_ROWS} learners at a time. Split the workbook and import it in parts.`,
+    );
+  }
+
+  const seen = new Set<string>();
+  const rows = records.map((record) => {
+    const clean = sanitizeRecord(record);
+    if (seen.has(clean.id)) {
+      throw new AccountError(
+        "invalid_record",
+        "The import contains the same learner-record id twice. Import the file again without duplicate rows.",
+      );
+    }
+    seen.add(clean.id);
+    return {
+      id: clean.id,
+      period: clean.period,
+      name: clean.name,
+      sex: clean.sex,
+      grade_level: clean.gradeLevel,
+      date_of_birth: clean.dateOfBirth,
+      date_of_weighing: clean.dateOfWeighing,
+      age_years: clean.ageYears,
+      age_months: clean.ageMonths,
+      weight: clean.weight,
+      height: clean.height,
+      bmi: clean.bmi,
+      bmi_status: clean.bmiStatus,
+      hfa_status: clean.hfaStatus,
+      nutritional_status: clean.nutritionalStatus,
+      classification_of_beneficiary: clean.classificationOfBeneficiary,
+      pregnant: mustNotBePregnant(clean.sex) ? "No" : clean.pregnant,
+      has_young_children: clean.hasYoungChildren,
+      dewormed: clean.dewormed,
+      parent_consent_milk: clean.parentConsentMilk,
+      four_ps: clean.fourPs,
+      sbfp_previous_years: clean.sbfpPreviousYears,
+    };
+  });
+
+  const activeSy = await getActiveSchoolYear(sql);
+  const saved = await sql<{ id: string }>`
+    insert into sbfp_records (
+      id, school_id, period, sy, name, sex, grade_level, date_of_birth, date_of_weighing,
+      age_years, age_months, weight, height, bmi, bmi_status, hfa_status, nutritional_status,
+      classification_of_beneficiary, pregnant, has_young_children, dewormed,
+      parent_consent_milk, four_ps, sbfp_previous_years, encoded_by, created_at, updated_at)
+    select x.id, ${schoolId}, x.period, ${activeSy}, x.name, x.sex, x.grade_level,
+      x.date_of_birth, x.date_of_weighing, x.age_years, x.age_months, x.weight, x.height,
+      x.bmi, x.bmi_status, x.hfa_status, x.nutritional_status,
+      x.classification_of_beneficiary, x.pregnant, x.has_young_children, x.dewormed,
+      x.parent_consent_milk, x.four_ps, x.sbfp_previous_years, ${encodedBy ?? null}, now(), now()
+    from jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) as x(
+      id text, period text, name text, sex text, grade_level text, date_of_birth text,
+      date_of_weighing text, age_years text, age_months text, weight text, height text,
+      bmi text, bmi_status text, hfa_status text, nutritional_status text,
+      classification_of_beneficiary text, pregnant text, has_young_children text,
+      dewormed text, parent_consent_milk text, four_ps text, sbfp_previous_years text)
+    on conflict (id) do update set
+      period = excluded.period,
+      sy = excluded.sy,
+      name = excluded.name,
+      sex = excluded.sex,
+      grade_level = excluded.grade_level,
+      date_of_birth = excluded.date_of_birth,
+      date_of_weighing = excluded.date_of_weighing,
+      age_years = excluded.age_years,
+      age_months = excluded.age_months,
+      weight = excluded.weight,
+      height = excluded.height,
+      bmi = excluded.bmi,
+      bmi_status = excluded.bmi_status,
+      hfa_status = excluded.hfa_status,
+      nutritional_status = excluded.nutritional_status,
+      classification_of_beneficiary = excluded.classification_of_beneficiary,
+      pregnant = excluded.pregnant,
+      has_young_children = excluded.has_young_children,
+      dewormed = excluded.dewormed,
+      parent_consent_milk = excluded.parent_consent_milk,
+      four_ps = excluded.four_ps,
+      sbfp_previous_years = excluded.sbfp_previous_years,
+      updated_at = now()
+    where sbfp_records.school_id = excluded.school_id
+      and sbfp_records.deleted_at is null
+    returning id
+  `;
+  return { saved: saved.length, activeSy };
 }
 
 /**

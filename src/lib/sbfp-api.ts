@@ -777,6 +777,36 @@ export const saveLearnerRecord = createServerFn({ method: "POST" })
     return { ok: true as const };
   });
 
+export interface LearnerRecordsInput {
+  schoolId: string;
+  /** One imported class, validated and written together. */
+  records: Student[];
+}
+
+/**
+ * Save a whole imported class in one request and one transaction.
+ *
+ * The import dialog used to call `saveLearnerRecord` once per row, which fanned
+ * out into hundreds of concurrent pool checkouts. This endpoint is the bulk
+ * path; it is deliberately admin-only, because the workbook importer is the
+ * Division Office's tool.
+ */
+export const saveLearnerRecords = createServerFn({ method: "POST" })
+  .validator((input: LearnerRecordsInput) => input)
+  .middleware([authMiddleware])
+  .handler(async ({ context, data }) =>
+    settle(async () => {
+      const { sql, access } = await requireAdmin(await sessionEmail(context));
+      const { upsertRecords, AccountError } = await import("./sbfp-accounts");
+      const schoolId = typeof data.schoolId === "string" ? data.schoolId.trim() : "";
+      if (!schoolId) throw new AccountError("not_found", "No school is set for this import.");
+      const school = await sql<{ id: string }>`select id from sbfp_schools where id = ${schoolId}`;
+      if (!school[0]) throw new AccountError("not_found", "That school is not on the list.");
+      const result = await upsertRecords(sql, schoolId, data.records, access.email);
+      return { saved: result.saved, activeSy: result.activeSy };
+    }),
+  );
+
 /** Delete one learner record the caller may write. */
 export const removeLearnerRecord = createServerFn({ method: "POST" })
   .validator((input: { id: string }) => input)

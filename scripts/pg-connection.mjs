@@ -9,15 +9,51 @@
  * Neon or a local server; the Supabase-specific part is TLS.
  *
  * Supabase refuses plaintext connections, and a connection string copied from
- * its dashboard often omits `sslmode` — which surfaces as the confusing
- * "no pg_hba.conf entry ... no encryption" error. But plain `sslmode=require`
- * is not the fix either: Supabase's pooler presents a certificate chained to
- * Supabase's own CA, which Node does not trust, and pg 8 maps `require` to
- * full verification (`SELF_SIGNED_CERT_IN_CHAIN`). `sslmode=no-verify` keeps
- * the connection encrypted while skipping that verification — the same trade
- * Supabase documents for node-postgres. An operator who supplies Supabase's CA
- * can still choose `verify-full` and it is left untouched.
+ * its dashboard often omits `sslmode`. This module therefore defaults Supabase
+ * connections to `verify-full` — encryption **and** server identity
+ * verification — rather than the old `no-verify` shortcut, which made a
+ * man-in-the-middle attack against the database connection possible.
+ *
+ * Supabase's pooler certificate is signed by Supabase's own root CA, so
+ * verification needs that CA. Put the PEM certificate in
+ * `SUPABASE_CA_CERT` (or `PG_SSL_CA_CERT`) and it is passed to node-postgres
+ * without putting a file path in the connection string; Vercel has no durable
+ * filesystem for a downloaded certificate. An operator who explicitly sets
+ * `sslmode=no-verify` (or legacy `require`/`prefer`) gets strict verification
+ * too, unless they deliberately opt out with `PG_ALLOW_INSECURE_TLS=true`.
  */
+
+const SSL_QUERY_PARAMS = ["sslmode", "sslrootcert", "sslcert", "sslkey"];
+
+function canUseInsecureTls() {
+  return process.env.PG_ALLOW_INSECURE_TLS === "true";
+}
+
+/**
+ * @param {string} connectionString
+ * @param {string} mode
+ * @returns {string}
+ */
+function replaceSslMode(connectionString, mode) {
+  return connectionString.replace(/([?&]sslmode=)([^&]*)/i, `$1${mode}`);
+}
+
+/**
+ * Remove TLS options from a connection string so they do not overwrite an
+ * explicit `ssl` object. `pg-connection-string` replaces the whole `ssl`
+ * option when the URL contains any of these parameters.
+ * @param {string} connectionString
+ * @returns {string}
+ */
+export function withoutSslParams(connectionString) {
+  try {
+    const url = new URL(connectionString);
+    for (const key of SSL_QUERY_PARAMS) url.searchParams.delete(key);
+    return url.toString();
+  } catch {
+    return connectionString;
+  }
+}
 
 /**
  * Is this connection string pointing at Supabase?
@@ -43,29 +79,29 @@ export function isSupabaseHost(connectionString) {
 }
 
 /**
- * The connection string with a Supabase-compatible SSL mode.
+ * The connection string with a verified Supabase SSL mode.
  *
- * Missing -> `sslmode=no-verify` (TLS, no CA verification). `require`/`prefer`
- * are rewritten to `no-verify` for the same reason: pg 8 treats them as
- * `verify-full`, which fails against Supabase's CA without extra setup. Other
- * explicit choices (`disable`, `verify-full`, `verify-ca`) are preserved — and
- * so is a `uselibpqcompat=true` string, where `require` already means no
- * verification.
+ * Missing -> `sslmode=verify-full`. Legacy `require`/`prefer` and explicit
+ * `no-verify` are also rewritten to `verify-full`: those modes encrypt without
+ * proving the server's identity. Set `PG_ALLOW_INSECURE_TLS=true` only for a
+ * deliberately non-production/diagnostic connection. Explicit `verify-full`,
+ * `verify-ca` and `disable` are preserved.
  * @param {string} connectionString
  * @returns {string}
  */
 export function withSslMode(connectionString) {
   if (!isSupabaseHost(connectionString)) return connectionString;
-  const libpqCompat = /[?&]uselibpqcompat=true(?:&|$)/i.test(connectionString);
   const match = /[?&]sslmode=([^&]*)/i.exec(connectionString);
   if (!match) {
     const separator = connectionString.includes("?") ? "&" : "?";
-    return `${connectionString}${separator}sslmode=no-verify`;
+    return `${connectionString}${separator}sslmode=verify-full`;
   }
-  if (libpqCompat) return connectionString;
   const mode = match[1].toLowerCase();
-  if (mode === "require" || mode === "prefer") {
-    return connectionString.replace(/([?&]sslmode=)([^&]*)/i, "$1no-verify");
+  if (mode === "require" || mode === "prefer" || mode === "no-verify") {
+    return replaceSslMode(
+      connectionString,
+      canUseInsecureTls() ? "no-verify" : "verify-full",
+    );
   }
   return connectionString;
 }
@@ -96,6 +132,15 @@ export function databaseUrlFromEnv(env = process.env) {
  * returns connections promptly, and the connect timeout turns a wrong host or
  * password into a clear error instead of a request that hangs.
  *
+ * `statement_timeout` / `query_timeout` keep one slow query from holding a
+ * scarce pool slot indefinitely. `PG_STATEMENT_TIMEOUT_MS` can raise or lower
+ * the 15-second default for a deliberately long maintenance query.
+ *
+ * If `SUPABASE_CA_CERT` / `PG_SSL_CA_CERT` is set, it is passed as the trusted
+ * CA in an `ssl` object and TLS parameters are removed from the URL (otherwise
+ * the URL's TLS options would replace the object). `\n` escapes in the env var
+ * are accepted so a one-line secret can hold a multiple-line PEM.
+ *
  * @param {string} connectionString
  * @param {{ max?: number }} [options]
  * @returns {{
@@ -103,15 +148,35 @@ export function databaseUrlFromEnv(env = process.env) {
  *   max: number,
  *   idleTimeoutMillis: number,
  *   connectionTimeoutMillis: number,
+ *   statement_timeout: number,
+ *   query_timeout: number,
+ *   ssl?: { ca: string, rejectUnauthorized: boolean },
  * }}
  */
 export function pgPoolOptions(connectionString, options = {}) {
   const requested = Number(process.env.PGPOOL_MAX ?? options.max ?? 2);
   const max = Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 2;
-  return {
-    connectionString: withSslMode(connectionString),
+  const requestedTimeout = Number(process.env.PG_STATEMENT_TIMEOUT_MS ?? 15_000);
+  const timeout = Number.isFinite(requestedTimeout) && requestedTimeout >= 1000
+    ? Math.floor(requestedTimeout)
+    : 15_000;
+  const ca = (process.env.SUPABASE_CA_CERT ?? process.env.PG_SSL_CA_CERT)?.trim();
+  const common = {
+    connectionString: ca
+      ? withoutSslParams(withSslMode(connectionString))
+      : withSslMode(connectionString),
     max,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 15_000,
+    statement_timeout: timeout,
+    query_timeout: timeout,
+  };
+  if (!ca) return common;
+  return {
+    ...common,
+    ssl: {
+      ca: ca.replace(/\\n/g, "\n"),
+      rejectUnauthorized: !canUseInsecureTls(),
+    },
   };
 }

@@ -30,7 +30,7 @@ export interface ImportLearnersDialogProps {
     rows: Student[],
     period: Period,
     summary: { invalid: number; duplicates: number; fileName: string },
-  ) => void;
+  ) => Promise<void> | void;
 }
 
 export function ImportLearnersDialog({
@@ -54,6 +54,8 @@ export function ImportLearnersDialog({
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
   const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
@@ -65,7 +67,7 @@ export function ImportLearnersDialog({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        if (!importingRef.current) onClose();
         return;
       }
       if (event.key !== "Tab") return;
@@ -162,14 +164,14 @@ export function ImportLearnersDialog({
     return { ready: readyRows, duplicates: duplicatesRows };
   }, [result, period, existing]);
 
-  const canImport = Boolean(period) && ready.length > 0 && !busy;
+  const canImport = Boolean(period) && ready.length > 0 && !busy && !importing;
 
-  const doImport = () => {
+  const doImport = async () => {
     if (!period) {
       setError("Choose the measurement period for this file.");
       return;
     }
-    if (ready.length === 0) return;
+    if (ready.length === 0 || importingRef.current) return;
     const stamp = Date.now();
     const rows: Student[] = ready.map((row, index) => ({
       id: `imp-${stamp}-${index}`,
@@ -178,11 +180,25 @@ export function ImportLearnersDialog({
       period,
       ...row.student,
     }));
-    onImported(rows, period, {
-      invalid: invalidRowCount,
-      duplicates: duplicates.length,
-      fileName,
-    });
+    setError("");
+    importingRef.current = true;
+    setImporting(true);
+    try {
+      await onImported(rows, period, {
+        invalid: invalidRowCount,
+        duplicates: duplicates.length,
+        fileName,
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "The learner records could not be imported. Try again.",
+      );
+    } finally {
+      importingRef.current = false;
+      setImporting(false);
+    }
   };
 
   const buttonStyle = (primary = false): CSSProperties => ({
@@ -292,8 +308,9 @@ export function ImportLearnersDialog({
             type="button"
             aria-label="Close import"
             onClick={onClose}
-            className="cursor-pointer text-sm px-2 py-1 rounded-sm"
-            style={{ color: t.dim, background: "transparent", border: "none" }}
+            disabled={importing}
+            className="text-sm px-2 py-1 rounded-sm"
+            style={{ color: t.dim, background: "transparent", border: "none", cursor: importing ? "wait" : "pointer", opacity: importing ? 0.6 : 1 }}
           >
             ✕
           </button>
@@ -580,7 +597,8 @@ export function ImportLearnersDialog({
               : "Nothing is saved until you confirm the preview."}
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} style={buttonStyle()}>
+            <button type="button" onClick={onClose} disabled={importing}
+              style={{ ...buttonStyle(), opacity: importing ? 0.6 : 1, cursor: importing ? "wait" : "pointer" }}>
               Cancel
             </button>
             <button
@@ -595,11 +613,13 @@ export function ImportLearnersDialog({
                 cursor: canImport ? "pointer" : "not-allowed",
               }}
             >
-              {!period
-                ? "Choose a period"
-                : ready.length > 0
-                  ? `Import ${ready.length} record${ready.length === 1 ? "" : "s"}`
-                  : "Nothing to import"}
+              {importing
+                ? `Importing ${ready.length} record${ready.length === 1 ? "" : "s"}…`
+                : !period
+                  ? "Choose a period"
+                  : ready.length > 0
+                    ? `Import ${ready.length} record${ready.length === 1 ? "" : "s"}`
+                    : "Nothing to import"}
             </button>
           </div>
         </footer>

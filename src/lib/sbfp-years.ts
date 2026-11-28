@@ -154,11 +154,15 @@ export async function purgeExpiredSchoolYears(
   `;
   const years = expired.map((row) => row.sy);
   for (const sy of years) {
-    await sql`delete from sbfp_records where sy = ${sy}`;
-    await sql`delete from sbfp_feedback where sy = ${sy}`;
-    await sql`delete from sbfp_summary_extras where sy = ${sy}`;
-    await sql`delete from sbfp_school_profiles_archive where sy = ${sy}`;
-    await sql`delete from sbfp_school_years where sy = ${sy}`;
+    // One archived year is all-or-nothing. The year row goes last so the
+    // archive's foreign key remains valid if a previous run was interrupted.
+    await sql.transaction(async (tx) => {
+      await tx`delete from sbfp_records where sy = ${sy}`;
+      await tx`delete from sbfp_feedback where sy = ${sy}`;
+      await tx`delete from sbfp_summary_extras where sy = ${sy}`;
+      await tx`delete from sbfp_school_profiles_archive where sy = ${sy}`;
+      await tx`delete from sbfp_school_years where sy = ${sy}`;
+    });
   }
   return years;
 }
@@ -213,84 +217,86 @@ export async function startNewSchoolYear(
   const problem = schoolYearProblem(sy);
   if (problem) throw new SchoolYearError("invalid_year", problem);
 
-  const closedSy = await getActiveSchoolYear(sql);
-  const existing = await sql<{ sy: string }>`
-    select sy from sbfp_school_years where sy = ${sy}
-  `;
-  if (existing[0]) {
-    throw new SchoolYearError(
-      "year_exists",
-      `${formatSchoolYear(sy)} has already been opened once.`,
-    );
-  }
-  if (sy <= closedSy) {
-    throw new SchoolYearError(
-      "invalid_year",
-      `The new school year has to come after ${formatSchoolYear(closedSy)}.`,
-    );
-  }
+  // The whole boundary is one transaction: a process that dies halfway must
+  // leave the old year exactly as it was, not an open year with last year's
+  // profile/trash still attached and no way to retry the same year.
+  const result = await sql.transaction(async (tx) => {
+    // Lock the active row so two administrators cannot close the same year at
+    // the same time. `getActiveSchoolYear` remains the fallback for a database
+    // that predates the year table.
+    const active = await tx<{ sy: string }>`
+      select sy from sbfp_school_years
+      where closed_at is null
+      order by sy desc
+      limit 1
+      for update
+    `;
+    const closedSy = active[0]?.sy ?? await getActiveSchoolYear(tx);
 
-  // Snapshot this year's form headers before the live block is cleared.
-  await sql`
-    insert into sbfp_school_profiles_archive
-      (sy, school_id, division, city_municipality_barangay, school_id_number,
-       sped_school_id_number, principal, focal_person, date_start_feeding,
-       last_mile_school, archived_at)
-    select ${closedSy}, school_id, division, city_municipality_barangay, school_id_number,
-           sped_school_id_number, principal, focal_person, date_start_feeding,
-           last_mile_school, now()
-    from sbfp_school_profiles
-    on conflict (sy, school_id) do update set
-      division = excluded.division,
-      city_municipality_barangay = excluded.city_municipality_barangay,
-      school_id_number = excluded.school_id_number,
-      sped_school_id_number = excluded.sped_school_id_number,
-      principal = excluded.principal,
-      focal_person = excluded.focal_person,
-      date_start_feeding = excluded.date_start_feeding,
-      last_mile_school = excluded.last_mile_school,
-      archived_at = now()
-  `;
+    const existing = await tx<{ sy: string }>`
+      select sy from sbfp_school_years where sy = ${sy}
+    `;
+    if (existing[0]) {
+      throw new SchoolYearError(
+        "year_exists",
+        `${formatSchoolYear(sy)} has already been opened once.`,
+      );
+    }
+    if (sy <= closedSy) {
+      throw new SchoolYearError(
+        "invalid_year",
+        `The new school year has to come after ${formatSchoolYear(closedSy)}.`,
+      );
+    }
 
-  await sql`
-    update sbfp_school_years set closed_at = now()
-    where sy = ${closedSy} and closed_at is null
-  `;
-  try {
-    await sql`insert into sbfp_school_years (sy) values (${sy})`;
-  } catch {
-    // Put the old year back rather than leaving the app with no active year.
-    // The guard keeps the partial unique index happy if another request has
-    // already opened a year in the meantime.
-    await sql`
-      update sbfp_school_years set closed_at = null
-      where sy = ${closedSy}
-        and not exists (select 1 from sbfp_school_years where closed_at is null)
-    `.catch(() => undefined);
-    throw new SchoolYearError(
-      "year_exists",
-      `${formatSchoolYear(sy)} could not be opened. Try again.`,
-    );
-  }
+    // Snapshot this year's form headers before the live block is cleared.
+    await tx`
+      insert into sbfp_school_profiles_archive
+        (sy, school_id, division, city_municipality_barangay, school_id_number,
+         sped_school_id_number, principal, focal_person, date_start_feeding,
+         last_mile_school, archived_at)
+      select ${closedSy}, school_id, division, city_municipality_barangay, school_id_number,
+             sped_school_id_number, principal, focal_person, date_start_feeding,
+             last_mile_school, now()
+      from sbfp_school_profiles
+      on conflict (sy, school_id) do update set
+        division = excluded.division,
+        city_municipality_barangay = excluded.city_municipality_barangay,
+        school_id_number = excluded.school_id_number,
+        sped_school_id_number = excluded.sped_school_id_number,
+        principal = excluded.principal,
+        focal_person = excluded.focal_person,
+        date_start_feeding = excluded.date_start_feeding,
+        last_mile_school = excluded.last_mile_school,
+        archived_at = now()
+    `;
 
-  // The trash is emptied when a new school year opens: a deleted record is
-  // recoverable for the rest of the year it was deleted in, and permanently
-  // gone once the school moves to the next year. This happens only after the
-  // new year is open, so a refused year never destroys anything.
-  await sql`delete from sbfp_records where deleted_at is not null`;
+    await tx`
+      update sbfp_school_years set closed_at = now()
+      where sy = ${closedSy} and closed_at is null
+    `;
+    await tx`insert into sbfp_school_years (sy) values (${sy})`;
 
-  // "Everything except accounts": the new year starts with blank school
-  // information, re-entered by each school. The snapshot above keeps the old
-  // one with the archive.
-  await sql`delete from sbfp_school_profiles`;
+    // The trash is emptied when a new school year opens: a deleted record is
+    // recoverable for the rest of the year it was deleted in, and permanently
+    // gone once the school moves to the next year.
+    await tx`delete from sbfp_records where deleted_at is not null`;
 
-  // Archived years beyond the five-year window are retired now, while the year
-  // boundary is already being written. This is intentionally best-effort: the
-  // school year has opened successfully, and a failed cleanup must not make the
-  // caller think the new year did not start. A later year start retries it.
+    // "Everything except accounts": the new year starts with blank school
+    // information, re-entered by each school. The snapshot above keeps the old
+    // one with the archive.
+    await tx`delete from sbfp_school_profiles`;
+
+    return { sy, closedSy };
+  });
+
+  // Archived years beyond the five-year window are retired after the boundary
+  // commits. This is intentionally best-effort: the new year is already safely
+  // open, and a failed cleanup must not make the caller think the rollover
+  // failed. A later year start retries it.
   await purgeExpiredSchoolYears(sql).catch((err) => {
     console.error("[school-years] archive retention cleanup failed", err);
   });
 
-  return { sy, closedSy };
+  return result;
 }

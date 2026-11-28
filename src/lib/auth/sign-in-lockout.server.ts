@@ -8,16 +8,15 @@ import { assertSameSiteRequest } from "./isolation.server";
 import { auth } from "./server";
 
 /**
- * The teacher sign-in gate in front of Better Auth.
+ * The SBFP sign-in gate in front of Better Auth.
  *
- * Better Auth verifies the password, but it does not know about a school
- * account's hold or cooldown. This wrapper checks both before the credential is
- * compared, then records a failed password atomically. Keeping the counter in
+ * Better Auth verifies the password, but it does not know about an account's
+ * hold or cooldown. This wrapper checks both before the credential is compared,
+ * then records a failed password atomically. Keeping the counter in
  * `sbfp_accounts` (rather than in the per-instance in-memory rate limiter) makes
- * the five-minute/each-further-minute cooldown survive serverless instances.
- *
- * The Division Office account is deliberately outside this policy: only teacher
- * accounts are counted or held here.
+ * the cooldown survive serverless instances. Both School Portal and Division
+ * Office accounts are counted; only a teacher account is ever auto-disabled at
+ * the tenth failure, so a sole administrator cannot be locked out permanently.
  */
 export async function handleEmailSignIn(request: Request): Promise<Response> {
   assertSameSiteRequest();

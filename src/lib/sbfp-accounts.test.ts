@@ -56,6 +56,8 @@ import {
   updateFeedback,
   updateOwnTeacherDetails,
   upsertRecord,
+  upsertRecords,
+  MAX_IMPORT_ROWS,
 } from "./sbfp-accounts.ts";
 import type { Sql } from "./db.ts";
 import {
@@ -72,10 +74,10 @@ import type { Student } from "@/lib/sbfp-shared";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ADMIN = "division@depedurdaneta.gov.ph";
 const TEACHER_A = "teacher.a@depedurdaneta.gov.ph";
-const SCHOOL_A = "es-001";
-const SCHOOL_B = "es-002";
-const SCHOOL_C = "hs-001";
-const SCHOOL_E = "es-009";
+const SCHOOL_A = "es01";
+const SCHOOL_B = "es02";
+const SCHOOL_C = "hs01";
+const SCHOOL_E = "es09";
 
 /** The `Sql` surface `@/lib/db` hands the service, over a PGlite instance. */
 function toSql(pg: PGlite): Sql {
@@ -86,6 +88,21 @@ function toSql(pg: PGlite): Sql {
   }) as unknown as Sql;
   sql.query = async <T = Record<string, unknown>>(text: string, params: unknown[] = []) =>
     (await pg.query(text, params)).rows as T[];
+  sql.transaction = async <T>(fn: (tx: Sql) => Promise<T>) => {
+    let result!: T;
+    await pg.transaction(async (tx) => {
+      const inner = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        let text = strings[0];
+        for (let i = 0; i < values.length; i += 1) text += `$${i + 1}${strings[i + 1]}`;
+        return (await tx.query(text, values)).rows as Record<string, unknown>[];
+      }) as unknown as Sql;
+      inner.query = async <U = Record<string, unknown>>(text: string, params: unknown[] = []) =>
+        (await tx.query<U>(text, params)).rows as U[];
+      inner.transaction = async (nested) => nested(inner);
+      result = await fn(inner);
+    });
+    return result;
+  };
   return sql;
 }
 
@@ -164,6 +181,7 @@ async function emptyDb(): Promise<PGlite> {
     "0009_cleanup_load_test_school.sql",
     "0010_teacher_login_lockout.sql",
     "0011_scale_and_retention.sql",
+    "0012_integrity_guardrails.sql",
   ]) {
     await fresh.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -185,6 +203,7 @@ before(async () => {
     "0009_cleanup_load_test_school.sql",
     "0010_teacher_login_lockout.sql",
     "0011_scale_and_retention.sql",
+    "0012_integrity_guardrails.sql",
   ]) {
     await pg.exec(await readFile(join(ROOT, "migrations", file), "utf8"));
   }
@@ -421,7 +440,7 @@ describe("the Division Office account", () => {
       password: "sbpf-cccc",
       role: "teacher",
       fullName: "Bautista, Lito",
-      schoolId: "es-003",
+      schoolId: "es03",
     });
     try {
       assert.notEqual(await dataVersion(sql, adminAccess), adminBeforeAccount);
@@ -539,6 +558,51 @@ describe("a teacher can only reach her own school", () => {
     );
     assert.equal(restored[0].deleted_at, null);
     await upsertRecord(sql, SCHOOL_A, record("tr_a1", "Learner A"), TEACHER_A);
+  });
+});
+
+describe("bulk learner import", () => {
+  it("saves a whole batch and returns the number written", async () => {
+    const rows = Array.from({ length: 40 }, (_, index) =>
+      record(`bulk_ok_${index}`, `Bulk Learner ${index}`),
+    );
+    const result = await upsertRecords(sql, SCHOOL_B, rows, ADMIN);
+    assert.equal(result.saved, rows.length);
+    const stored = await sql.query<{ n: number | string }>(
+      "select count(*) as n from sbfp_records where id like 'bulk_ok_%'",
+    );
+    assert.equal(Number(stored[0]?.n ?? 0), rows.length);
+  });
+
+  it("does not write any row when one row in the batch is invalid", async () => {
+    const rows = [
+      record("bulk_bad_1", "Valid first row"),
+      record("bulk_bad_2", "Zero weight", { weight: "0" }),
+    ];
+    const code = await refusal(() => upsertRecords(sql, SCHOOL_B, rows, ADMIN));
+    assert.equal(code, "invalid_record");
+    const stored = await sql.query<{ n: number | string }>(
+      "select count(*) as n from sbfp_records where id like 'bulk_bad_%'",
+    );
+    assert.equal(Number(stored[0]?.n ?? 0), 0);
+  });
+
+  it("rejects duplicate ids and batches over the cap before touching the database", async () => {
+    const duplicate = [
+      record("bulk_dup", "First copy"),
+      record("bulk_dup", "Second copy"),
+    ];
+    assert.equal(
+      await refusal(() => upsertRecords(sql, SCHOOL_B, duplicate, ADMIN)),
+      "invalid_record",
+    );
+    const tooMany = Array.from({ length: MAX_IMPORT_ROWS + 1 }, (_, index) =>
+      record(`bulk_over_${index}`, `Over cap ${index}`),
+    );
+    assert.equal(
+      await refusal(() => upsertRecords(sql, SCHOOL_B, tooMany, ADMIN)),
+      "invalid_record",
+    );
   });
 });
 
@@ -692,7 +756,7 @@ describe("passwords", () => {
     );
     await pg.query(
       "insert into sbfp_accounts (email, role, full_name, school_id, status, temp_password) values ($1, 'teacher', $2, $3, 'active', false)",
-      ["gated@depedurdaneta.gov.ph", "Gated Teacher", "es-003"],
+      ["gated@depedurdaneta.gov.ph", "Gated Teacher", "es03"],
     );
     assert.equal((await credentialState(sql, "gated@depedurdaneta.gov.ph"))?.hasPassword, false);
 
@@ -956,8 +1020,8 @@ describe("school data", () => {
   });
 
   it("can move an account to another school, but not onto a taken one", async () => {
-    const moved = await updateAccount(sql, "teacher.b@depedurdaneta.gov.ph", { schoolId: "hs-002" });
-    assert.equal(moved.schoolId, "hs-002");
+    const moved = await updateAccount(sql, "teacher.b@depedurdaneta.gov.ph", { schoolId: "hs02" });
+    assert.equal(moved.schoolId, "hs02");
     assert.equal(
       await refusal(() => updateAccount(sql, "teacher.b@depedurdaneta.gov.ph", { schoolId: SCHOOL_A })),
       "school_taken",
@@ -1337,5 +1401,34 @@ describe("teacher sign-in lockout", () => {
     assert.equal(afterLift?.failures, 0);
     assert.equal(afterLift?.retryAfterSeconds, 0);
     assert.equal(afterLift?.held, false);
+  });
+
+  it("rate-limits the Division Office too, without ever auto-disabling it", async () => {
+    await clearTeacherLoginFailures(sql, ADMIN);
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const state = await recordTeacherLoginFailure(sql, ADMIN);
+      assert.equal(state?.failures, attempt);
+      assert.equal(state?.retryAfterSeconds, 0);
+    }
+    const fifth = await recordTeacherLoginFailure(sql, ADMIN);
+    assert.equal(fifth?.failures, 5);
+    assert.ok((fifth?.retryAfterSeconds ?? 0) > 0, "the fifth admin failure starts a cooldown");
+    assert.equal(fifth?.held, false, "the Division Office is never put on hold by guessing");
+
+    // Even well past the teacher hold threshold, the only admin account stays
+    // active — otherwise an attacker could permanently lock the Division Office
+    // out by submitting wrong passwords for its known address.
+    await sql.query(
+      "update sbfp_accounts set failed_login_count = 20, lockout_until = null, status = 'active' where lower(email) = $1",
+      [ADMIN],
+    );
+    const beyond = await recordTeacherLoginFailure(sql, ADMIN);
+    assert.equal(beyond?.failures, 21);
+    assert.equal(beyond?.held, false);
+    assert.equal((await findAccountByEmail(sql, ADMIN))?.status, "active");
+    assert.ok((beyond?.retryAfterSeconds ?? 0) > 0);
+
+    await clearTeacherLoginFailures(sql, ADMIN);
+    assert.equal((await teacherLoginState(sql, ADMIN))?.failures, 0);
   });
 });

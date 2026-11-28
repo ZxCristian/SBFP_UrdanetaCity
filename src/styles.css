@@ -70,6 +70,19 @@ html {
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+
+  /*
+   * One visible keyboard-focus ring for every control, including the many
+   * inputs whose inline style says `outline: none`. Without this, tabbing
+   * through the console or the school portal moved focus with no visual cue.
+   * The blue is readable against both the dark console and the warm light
+   * portal; !important is intentional because inline `outline: none` would
+   * otherwise win over this rule.
+   */
+  :where(a, button, input, select, textarea, summary, [role="button"], [tabindex]):focus-visible {
+    outline: 2px solid #0b5fff !important;
+    outline-offset: 2px !important;
+  }
 }
 
 /*

@@ -4,12 +4,14 @@
   "sideEffects": false,
   "type": "module",
   "overrides": {
-    "nf3": "0.3.17"
+    "nf3": "0.3.17",
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   },
   "scripts": {
     "dev": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 8080",
-    "build": "node scripts/with-app-env.mjs vite build",
-    "build:deploy": "npm run build && npm run db:migrate",
+    "build": "node scripts/with-app-env.mjs vite build && node scripts/after-build-copy.mjs",    "build:deploy": "npm run build && node scripts/after-build-copy.mjs && npm run db:migrate",
     "db:migrate": "node scripts/migrate.mjs",
     "seed": "npm run db:migrate && node --experimental-strip-types scripts/seed-sample-data.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
@@ -18,10 +20,11 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-error.test.ts src/lib/sbfp-accounts.test.ts src/lib/sbfp-domain.test.ts src/lib/sbfp-seed.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-error.test.ts src/lib/sbfp-accounts.test.ts src/lib/sbfp-domain.test.ts src/lib/sbfp-seed.test.ts src/lib/keep-alive-daily.test.ts",
     "lint": "eslint .",
     "loadtest": "node scripts/load-test.mjs",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "prepare": "husky install"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
@@ -54,12 +57,18 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
+    "husky": "^9.1.7",
     "lightningcss": "^1.28.0",
+    "lint-staged": "^17.6.2",
     "nitro": "3.0.260610-beta",
     "playwright": "^1.62.0",
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.73.0",
     "vite": "^8.3.5"
+  },
+  "lint-staged": {
+    "*.js": "eslint --cache --fix",
+    "*.{js,css,md}": "prettier --write"
   }
 }

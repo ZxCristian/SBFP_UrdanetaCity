@@ -28,6 +28,8 @@ export const dbSource: DbSource = databaseUrl ? "postgres" : "pglite";
  *   const rows = await sql`select * from todos where id = ${id}`; // parameterized
  *   const rows2 = await sql.query("select * from todos where id = $1", [id]);
  */
+export type SqlTransaction = <T>(fn: (tx: Sql) => Promise<T>) => Promise<T>;
+
 export interface Sql {
   <T = Record<string, unknown>>(
     strings: TemplateStringsArray,
@@ -37,6 +39,8 @@ export interface Sql {
     text: string,
     params?: unknown[],
   ): Promise<T[]>;
+  /** Ideal for multi-statement operations that must land together. */
+  transaction: SqlTransaction;
 }
 
 /**
@@ -72,7 +76,7 @@ const identity = (v: string) => v;
 type Run = <T>(text: string, params: unknown[]) => Promise<T[]>;
 
 /** Wrap a query runner in the tagged-template + `.query()` `Sql` surface. */
-function toSql(run: Run): Sql {
+function toSql(run: Run, transaction?: SqlTransaction): Sql {
   const sql = (async <T = Record<string, unknown>>(
     strings: TemplateStringsArray,
     ...values: unknown[]
@@ -84,6 +88,10 @@ function toSql(run: Run): Sql {
   }) as unknown as Sql;
   sql.query = <T = Record<string, unknown>>(text: string, params: unknown[] = []) =>
     run<T>(text, params);
+  // A bare runner (test helper, migration context) has no real transaction
+  // primitive. It still exposes the method so the same service code runs;
+  // callers that need atomicity are given a real one by both backends below.
+  sql.transaction = transaction ?? (async (fn) => fn(sql));
   return sql;
 }
 
@@ -97,9 +105,31 @@ function createPostgresSql(): Promise<Sql> {
     types.setTypeParser(OID_DATE, identity);
     types.setTypeParser(OID_INTERVAL, identity);
     const pool = new Pool(pgPoolOptions(databaseUrl as string));
-    return toSql(async <T>(text: string, params: unknown[]) => {
+    const run: Run = async <T>(text: string, params: unknown[]) => {
       const res = await pool.query(text, params);
       return res.rows as T[];
+    };
+    return toSql(run, async <T>(fn: (tx: Sql) => Promise<T>) => {
+      // A transaction must stay on ONE pooled connection. Using the pool's
+      // convenience query method for BEGIN/COMMIT would be wrong here: each
+      // call can borrow a different client, so the statements would not be one
+      // transaction at all.
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const tx = toSql(async <U>(sqlText: string, params: unknown[]) => {
+          const res = await client.query(sqlText, params);
+          return res.rows as U[];
+        });
+        const result = await fn(tx);
+        await client.query("commit");
+        return result;
+      } catch (err) {
+        await client.query("rollback").catch(() => undefined);
+        throw err;
+      } finally {
+        client.release();
+      }
     });
   })().catch((err) => {
     globalRef.__pgSqlPromise__ = undefined;
@@ -164,9 +194,20 @@ async function createPgliteSql(): Promise<Sql> {
   globalRef.__pgliteMigrateChain__ = pass;
   await pass;
 
-  return toSql(async <T>(text: string, params: unknown[]) => {
+  const run: Run = async <T>(text: string, params: unknown[]) => {
     const result = await pg.query<T>(text, params);
     return result.rows;
+  };
+  return toSql(run, async <T>(fn: (tx: Sql) => Promise<T>) => {
+    let result!: T;
+    await pg.transaction(async (tx) => {
+      const txSql = toSql(async <U>(sqlText: string, params: unknown[]) => {
+        const res = await tx.query<U>(sqlText, params);
+        return res.rows;
+      });
+      result = await fn(txSql);
+    });
+    return result;
   });
 }
 

@@ -30,34 +30,52 @@ describe("databaseUrlFromEnv", () => {
 });
 
 describe("withSslMode", () => {
-  it("adds sslmode=no-verify to a Supabase direct connection", () => {
+  it("defaults a Supabase direct connection to verified TLS", () => {
     const url =
       "postgresql://postgres.abcdefgh:p%40ss@db.abcdefgh.supabase.co:5432/postgres";
-    assert.equal(withSslMode(url), `${url}?sslmode=no-verify`);
+    assert.equal(withSslMode(url), `${url}?sslmode=verify-full`);
   });
 
-  it("adds sslmode=no-verify to a Supabase pooler connection", () => {
+  it("defaults a Supabase pooler connection to verified TLS", () => {
     const url =
       "postgresql://postgres.abcdefgh:p%40ss@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres";
-    assert.equal(withSslMode(url), `${url}?sslmode=no-verify`);
+    assert.equal(withSslMode(url), `${url}?sslmode=verify-full`);
   });
 
   it("appends with & when the URL already has a query", () => {
     assert.equal(
       withSslMode("postgresql://user@db.x.supabase.co:5432/postgres?application_name=sbfp"),
-      "postgresql://user@db.x.supabase.co:5432/postgres?application_name=sbfp&sslmode=no-verify",
+      "postgresql://user@db.x.supabase.co:5432/postgres?application_name=sbfp&sslmode=verify-full",
     );
   });
 
-  it("rewrites require/prefer, which pg 8 would verify and fail on Supabase's CA", () => {
+  it("upgrades legacy require/prefer/no-verify modes to verify-full", () => {
     assert.equal(
       withSslMode("postgresql://user@db.x.supabase.co:5432/postgres?sslmode=require"),
-      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=no-verify",
+      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=verify-full",
     );
     assert.equal(
       withSslMode("postgresql://user@db.x.supabase.co:5432/postgres?sslmode=prefer&application_name=x"),
-      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=no-verify&application_name=x",
+      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=verify-full&application_name=x",
     );
+    assert.equal(
+      withSslMode("postgresql://user@db.x.supabase.co:5432/postgres?sslmode=no-verify"),
+      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=verify-full",
+    );
+  });
+
+  it("only allows the insecure mode with an explicit opt-in", () => {
+    const previous = process.env.PG_ALLOW_INSECURE_TLS;
+    process.env.PG_ALLOW_INSECURE_TLS = "true";
+    try {
+      assert.equal(
+        withSslMode("postgresql://user@db.x.supabase.co:5432/postgres?sslmode=require"),
+        "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=no-verify",
+      );
+    } finally {
+      if (previous === undefined) delete process.env.PG_ALLOW_INSECURE_TLS;
+      else process.env.PG_ALLOW_INSECURE_TLS = previous;
+    }
   });
 
   it("keeps an explicit verify-full sslmode", () => {
@@ -65,10 +83,13 @@ describe("withSslMode", () => {
     assert.equal(withSslMode(url), url);
   });
 
-  it("leaves a libpq-compatible require string alone", () => {
-    const url =
-      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=require&uselibpqcompat=true";
-    assert.equal(withSslMode(url), url);
+  it("upgrades a libpq-compatible require string unless opted out", () => {
+    assert.equal(
+      withSslMode(
+        "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=require&uselibpqcompat=true",
+      ),
+      "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=verify-full&uselibpqcompat=true",
+    );
   });
 
   it("leaves non-Supabase and unparseable strings alone", () => {
@@ -99,8 +120,40 @@ describe("pgPoolOptions", () => {
     assert.equal(pgPoolOptions("postgresql://user@localhost/app", { max: 1 }).max, 1);
   });
 
-  it("normalizes a Supabase connection string", () => {
+  it("normalizes a Supabase connection string to verified TLS", () => {
     const options = pgPoolOptions("postgresql://user@db.x.supabase.co:5432/postgres");
-    assert.match(options.connectionString, /\?sslmode=no-verify$/);
+    assert.match(options.connectionString, /\?sslmode=verify-full$/);
+  });
+
+  it("passes a supplied Supabase CA as an explicit ssl object", () => {
+    const previous = process.env.SUPABASE_CA_CERT;
+    process.env.SUPABASE_CA_CERT = "-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----";
+    try {
+      const options = pgPoolOptions(
+        "postgresql://user@db.x.supabase.co:5432/postgres?sslmode=require",
+      );
+      assert.equal(options.connectionString, "postgresql://user@db.x.supabase.co:5432/postgres");
+      assert.equal(options.ssl?.rejectUnauthorized, true);
+      assert.match(options.ssl?.ca ?? "", /\nabc\n/);
+    } finally {
+      if (previous === undefined) delete process.env.SUPABASE_CA_CERT;
+      else process.env.SUPABASE_CA_CERT = previous;
+    }
+  });
+
+  it("honors the explicit insecure opt-out even with a CA configured", () => {
+    const previousCa = process.env.SUPABASE_CA_CERT;
+    const previousOptOut = process.env.PG_ALLOW_INSECURE_TLS;
+    process.env.SUPABASE_CA_CERT = "-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----";
+    process.env.PG_ALLOW_INSECURE_TLS = "true";
+    try {
+      const options = pgPoolOptions("postgresql://user@db.x.supabase.co:5432/postgres");
+      assert.equal(options.ssl?.rejectUnauthorized, false);
+    } finally {
+      if (previousCa === undefined) delete process.env.SUPABASE_CA_CERT;
+      else process.env.SUPABASE_CA_CERT = previousCa;
+      if (previousOptOut === undefined) delete process.env.PG_ALLOW_INSECURE_TLS;
+      else process.env.PG_ALLOW_INSECURE_TLS = previousOptOut;
+    }
   });
 });

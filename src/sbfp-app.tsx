@@ -21,6 +21,7 @@ import {
   removeLearnerRecord,
   removeSchoolEntry,
   saveLearnerRecord,
+  saveLearnerRecords,
   saveSchoolHeader,
   updateSchoolEntry,
 } from "@/lib/sbfp-api";
@@ -108,7 +109,7 @@ export interface TC {
 }
 const DARK: TC = {
   bg:"#080808", surface:"#111111", surface2:"#161616", surfaceDeep:"#0d0d0d",
-  hover:"#161616", border:"#1e1e1e", text:"#e2e2e2", sub:"#888", dim:"#555", faint:"#2a2a2a",
+  hover:"#161616", border:"#1e1e1e", text:"#e2e2e2", sub:"#a3a3a3", dim:"#8c8c8c", faint:"#808080",
   accent:"#00ff87", accentBg:"#00ff8720", accentText:"#000", danger:"#ff4b4b", warning:"#ff9f4b",
   grandBg:"#0a1a10", isDark:true,
   blue:"#00c9ff", lime:"#b8ff4f", orange:"#ff9f4b",
@@ -118,7 +119,7 @@ const DARK: TC = {
 };
 const LIGHT: TC = {
   bg:"#f1f1ed", surface:"#ffffff", surface2:"#f7f7f3", surfaceDeep:"#e6e6e0",
-  hover:"#eaeae6", border:"#d3d3ca", text:"#1b1b17", sub:"#4d4d46", dim:"#6d6d64", faint:"#8e8e85",
+  hover:"#eaeae6", border:"#d3d3ca", text:"#1b1b17", sub:"#3f3f39", dim:"#55554e", faint:"#696961",
   accent:"#0b7a41", accentBg:"#0b7a4118", accentText:"#ffffff", danger:"#bc2f2f", warning:"#9d5200",
   grandBg:"#e4f1e8", isDark:false,
   blue:"#0f6f91", lime:"#557a12", orange:"#a25a09",
@@ -182,7 +183,7 @@ function Pill({ label, color }: { label: string; color: string }) {
 function StatCard({ label, value, accent, t }: { label:string; value:string|number; accent?:boolean; t:TC }) {
   return (
     <div style={{ border:`1px solid ${t.border}`, background:t.surface }} className="p-4 flex flex-col gap-2">
-      <div className="text-[9px] tracking-widest uppercase" style={{ color:t.dim }}>{label}</div>
+      <div className="text-[9px] tracking-widest uppercase" style={{ color:t.sub }}>{label}</div>
       <div className="text-2xl font-semibold" style={{ fontFamily:"'JetBrains Mono',monospace", color: accent ? t.accent : t.text }}>{value}</div>
     </div>
   );
@@ -318,7 +319,7 @@ function Sidebar({ view, setView, selectedSchool, setSelectedSchool, themeMode, 
           <span>{themeMode === "dark" ? "☀" : "☾"}</span>
           {themeMode === "dark" ? "Day Mode" : "Night Mode"}
         </button>
-        <div className="text-[10px] leading-relaxed" style={{ color:t.faint }}>
+        <div className="text-[10px] leading-relaxed" style={{ color:t.sub }}>
           {schools.filter(s=>s.type==="Elementary").length} ES · {schools.filter(s=>s.type==="High School").length} HS<br />SY {formatSchoolYear(activeSy)}
         </div>
       </div>
@@ -1069,14 +1070,14 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-lg font-semibold" style={{ color:t.text }}>{school.name}</h1>
-          <p className="text-xs mt-0.5" style={{ color:t.dim }}>{school.type} · SY {formatSchoolYear(activeSy)}</p>
+          <p className="text-xs mt-0.5" style={{ color:t.sub }}>{school.type} · SY {formatSchoolYear(activeSy)}</p>
         </div>
         <div className="flex gap-1.5">
           {(["All",...PERIODS] as const).map(p => (
             <button key={p} onClick={() => setPeriod(p)} className="px-3 py-1.5 text-xs rounded-sm cursor-pointer border transition-colors"
               style={period===p
                 ? p==="All" ? { background:t.accentBg, color:t.accent, borderColor:t.accent+"40" } : { background:t.period[p as Period]+"20", color:t.period[p as Period], borderColor:t.period[p as Period]+"40" }
-                : { background:t.surface, color:t.dim, borderColor:t.border }}>
+                : { background:t.surface, color:t.sub, borderColor:t.border }}>
               {p}
             </button>
           ))}
@@ -1093,7 +1094,7 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
       {students.length === 0 && (
         <div style={{ border:`1px dashed ${t.border}`, background:t.surface }} className="p-5">
           <p className="text-sm" style={{ color:t.sub }}>No learner records yet.</p>
-          <p className="text-xs mt-1" style={{ color:t.dim }}>
+          <p className="text-xs mt-1" style={{ color:t.sub }}>
             Add this school's learners from Student Records, or wait for the school to submit them through the School Portal.
           </p>
         </div>
@@ -1101,7 +1102,7 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-px" style={{ background:t.border }}>
         <div style={{ border:`1px solid ${t.border}`, background:t.surface }} className="p-5">
-          <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.dim }}>BMI Status</div>
+          <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.sub }}>BMI Status</div>
           {bmiDist.map(c=>(
             <div key={c.label} className="mb-3">
               <div className="flex justify-between mb-1"><span className="text-xs" style={{ color:t.sub }}>{c.label}</span>
@@ -1111,7 +1112,7 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
           ))}
         </div>
         <div style={{ border:`1px solid ${t.border}`, background:t.surface }} className="p-5">
-          <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.dim }}>HFA Status</div>
+          <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.sub }}>HFA Status</div>
           {hfaDist.map(c=>(
             <div key={c.label} className="mb-3">
               <div className="flex justify-between mb-1"><span className="text-xs" style={{ color:t.sub }}>{c.label}</span>
@@ -1123,12 +1124,12 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
       </div>
 
       <div style={{ border:`1px solid ${t.border}`, background:t.surface }} className="p-5">
-        <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.dim }}>Students by Grade</div>
+        <div className="text-[9px] tracking-widest uppercase mb-4" style={{ color:t.sub }}>Students by Grade</div>
         <div className="flex items-end gap-2">
           {byGrade.map(({grade,count}) => (
             <div key={grade} className="flex-1 flex flex-col items-center gap-1.5">
               <div className="w-full rounded-sm" style={{ height:`${(count/maxG)*60}px`, minHeight:"2px", background:count>0?t.accent:t.border }} />
-              <span className="text-[8px]" style={{ fontFamily:"'JetBrains Mono',monospace", color:t.faint }}>{grade.replace("SPED ","S").replace("Grade ","G").replace("Kinder","KG")}</span>
+              <span className="text-[10px]" style={{ fontFamily:"'JetBrains Mono',monospace", color:t.sub }}>{grade.replace("SPED ","S").replace("Grade ","G").replace("Kinder","KG")}</span>
             </div>
           ))}
         </div>
@@ -1138,8 +1139,8 @@ function Dashboard({ students, school, activeSy }: { students:Student[]; school:
 }
 
 // ── Data Entry ────────────────────────────────────────────────────────────────
-function DataEntry({ students, setStudents, school, setView, editingStudent, clearEditing, activeSy }: {
-  students:Student[]; setStudents:(s:Student[])=>void; school:School;
+function DataEntry({ students, setStudents, onBulkImported, school, setView, editingStudent, clearEditing, activeSy }: {
+  students:Student[]; setStudents:(s:Student[])=>void; onBulkImported:(rows:Student[])=>void; school:School;
   setView:(v:View)=>void; editingStudent:Student|null; clearEditing:()=>void; activeSy:string;
 }) {
   const t = useT();
@@ -1606,8 +1607,12 @@ function DataEntry({ students, setStudents, school, setView, editingStudent, cle
           existing={students.filter((student) => student.schoolId === school.id)}
           initialPeriod={period}
           onClose={() => setImportOpen(false)}
-          onImported={(rows, importedPeriod, summary) => {
-            setStudents([...students, ...rows]);
+          onImported={async (rows, importedPeriod, summary) => {
+            const result = await saveLearnerRecords({
+              data: { schoolId: school.id, records: rows },
+            });
+            if (!result.ok) throw new Error(result.message);
+            onBulkImported(rows);
             setImportOpen(false);
             setImportNotice({ count: rows.length, period: importedPeriod, ...summary });
           }}
@@ -2606,6 +2611,13 @@ export default function App() {
             setStudents={ss => saveStudents([...allStudents.filter(s=>s.schoolId!==selectedSchool.id),...ss])}
             school={selectedSchool} setView={setView} onEdit={handleEdit} activeSy={teacherData.activeSy} />}
           {view==="entry" && selectedSchool && <DataEntry students={allStudents} setStudents={saveStudents}
+            onBulkImported={(rows) => {
+              // The bulk endpoint already persisted the rows; this only updates
+              // the visible copy. Calling saveStudents here would write every
+              // row again, one request at a time.
+              setStudents((previous) => [...previous, ...rows]);
+              access.reload();
+            }}
             school={selectedSchool} setView={setView} editingStudent={editingStudent} clearEditing={clearEditing}
             activeSy={teacherData.activeSy} />}
           {view==="table" && selectedSchool && <SummaryTable students={schoolStudents} school={selectedSchool} activeSy={teacherData.activeSy} />}

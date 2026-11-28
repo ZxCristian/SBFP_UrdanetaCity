@@ -50,8 +50,8 @@ const T = {
   surface2: "#161616",
   border: "#232323",
   text: "#e2e2e2",
-  sub: "#9a9a9a",
-  dim: "#6a6a6a",
+  sub: "#b3b3b3",
+  dim: "#949494",
   accent: "#00ff87",
   accentSoft: "#00ff8720",
   danger: "#ff6b6b",
@@ -111,6 +111,7 @@ function Submit({
       type={type}
       onClick={onClick}
       disabled={busy || disabled}
+      aria-busy={busy || undefined}
       style={{
         padding: "11px 18px",
         fontSize: 13.5,
@@ -131,6 +132,8 @@ function Submit({
 function Notice({ tone, children }: { tone: "error" | "info"; children: ReactNode }) {
   return (
     <p
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
       style={{
         fontSize: 12.5,
         color: tone === "error" ? T.danger : T.sub,
@@ -350,8 +353,25 @@ function AdminPanel({
           school, or sign in below with the Division Office credentials.
         </p>
         <div className="mt-5">
-          <Link to="/" style={{ textDecoration: "none" }}>
-            <Submit type="button">Open the School Portal →</Submit>
+          <Link
+            to="/"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 42,
+              padding: "11px 18px",
+              fontSize: 13.5,
+              fontWeight: 600,
+              borderRadius: 9,
+              border: `1px solid ${T.accent}`,
+              background: T.accent,
+              color: "#04120a",
+              textDecoration: "none",
+              fontFamily: font,
+            }}
+          >
+            Open the School Portal →
           </Link>
         </div>
         <div style={{ marginTop: 20, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
@@ -638,6 +658,8 @@ function SignInForm({
           <button
             type="button"
             onClick={() => setShow((v) => !v)}
+            aria-label={show ? "Hide password" : "Show password"}
+            aria-pressed={show}
             style={{
               padding: "0 12px",
               fontSize: 11.5,
@@ -858,6 +880,8 @@ function ResetPasswordForm({
     <button
       type="button"
       onClick={() => setShow((v) => !v)}
+      aria-label={show ? "Hide password" : "Show password"}
+      aria-pressed={show}
       style={{
         padding: "0 12px",
         fontSize: 11.5,
@@ -967,6 +991,7 @@ function BootstrapForm({
         <input
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
+          autoComplete="name"
           placeholder="Division SBFP Coordinator"
           className="login-control"
         />
@@ -976,6 +1001,7 @@ function BootstrapForm({
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
           placeholder="division@depedurdaneta.gov.ph"
           className="login-control"
         />
@@ -985,6 +1011,7 @@ function BootstrapForm({
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
+          autoComplete="new-password"
           placeholder="••••••••"
           className="login-control"
         />

@@ -36,6 +36,21 @@ function toSql(pg: PGlite): Sql {
     text: string,
     params: unknown[] = [],
   ) => (await pg.query(text, params)).rows as T[];
+  sql.transaction = async <T>(fn: (tx: Sql) => Promise<T>) => {
+    let result!: T;
+    await pg.transaction(async (tx) => {
+      const inner = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        let text = strings[0];
+        for (let i = 0; i < values.length; i += 1) text += `$${i + 1}${strings[i + 1]}`;
+        return (await tx.query(text, values)).rows as Record<string, unknown>[];
+      }) as unknown as Sql;
+      inner.query = async <U = Record<string, unknown>>(text: string, params: unknown[] = []) =>
+        (await tx.query<U>(text, params)).rows as U[];
+      inner.transaction = async (nested) => nested(inner);
+      result = await fn(inner);
+    });
+    return result;
+  };
   return sql;
 }
 

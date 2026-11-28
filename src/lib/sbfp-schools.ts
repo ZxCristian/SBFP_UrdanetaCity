@@ -196,25 +196,29 @@ export async function deleteSchool(sql: Sql, id: string): Promise<void> {
   const exists = await sql<{ id: string }>`select id from sbfp_schools where id = ${id}`;
   if (!exists[0]) throw new SchoolError("school_not_found", "That school is not on the list.");
 
-  const held = await sql<{ records: number | string; feedback: number | string; accounts: number | string }>`
+  const held = await sql<{ records: number | string; feedback: number | string; accounts: number | string; summary: number | string }>`
     select
       (select count(*) from sbfp_records where school_id = ${id}) as records,
       (select count(*) from sbfp_feedback where school_id = ${id}) as feedback,
-      (select count(*) from sbfp_accounts where school_id = ${id}) as accounts
+      (select count(*) from sbfp_accounts where school_id = ${id}) as accounts,
+      (select count(*) from sbfp_summary_extras where school_id = ${id}) as summary
   `;
   const row = held[0];
-  const taken = Number(row?.accounts ?? 0) + Number(row?.records ?? 0) + Number(row?.feedback ?? 0);
+  const taken = Number(row?.accounts ?? 0) + Number(row?.records ?? 0) + Number(row?.feedback ?? 0) + Number(row?.summary ?? 0);
   if (taken > 0) {
     const parts: string[] = [];
     if (Number(row?.accounts ?? 0) > 0) parts.push("an account");
     if (Number(row?.records ?? 0) > 0) parts.push(`${Number(row?.records)} learner record(s)`);
     if (Number(row?.feedback ?? 0) > 0) parts.push(`${Number(row?.feedback)} feedback entr${Number(row?.feedback) === 1 ? "y" : "ies"}`);
+    if (Number(row?.summary ?? 0) > 0) parts.push("Summary Table figures");
     throw new SchoolError(
       "school_in_use",
       `This school still holds ${parts.join(", ")}. Remove those first.`,
     );
   }
 
-  await sql`delete from sbfp_school_profiles where school_id = ${id}`;
-  await sql`delete from sbfp_schools where id = ${id}`;
+  await sql.transaction(async (tx) => {
+    await tx`delete from sbfp_school_profiles where school_id = ${id}`;
+    await tx`delete from sbfp_schools where id = ${id}`;
+  });
 }
