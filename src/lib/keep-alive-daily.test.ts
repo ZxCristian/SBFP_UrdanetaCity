@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import type { Sql } from "./db.ts";
 import { keepAliveWrite } from "./sbfp-keepalive.ts";
@@ -39,6 +39,10 @@ before(async () => {
   sql = toSql(pg);
 });
 
+after(async () => {
+  await pg.close();
+});
+
 async function dailyStamp(): Promise<string> {
   const rows = await sql<{ ts: string }>`
     select ts from sbfp_keepalive where kind = 'daily'
@@ -71,5 +75,23 @@ describe("keepAliveWrite", () => {
 
     const second = new Date(await dailyStamp());
     assert.ok(second.getTime() >= first.getTime());
+  });
+
+  it("provisions its own table on a database without the migration", async () => {
+    // Deploys do not run migrations, so the daily touch cannot assume the
+    // table exists. A bare database is that exact state.
+    const bare = new PGlite();
+    await bare.waitReady;
+    try {
+      const bareSql = toSql(bare);
+      await keepAliveWrite(bareSql);
+
+      const rows = await bareSql<{ count: string }>`
+        select count(*)::text as count from sbfp_keepalive where kind = 'daily'
+      `;
+      assert.equal(rows[0]?.count, "1");
+    } finally {
+      await bare.close();
+    }
   });
 });

@@ -23,6 +23,15 @@ import type { Sql } from "./db.ts";
  */
 export async function keepAliveWrite(sql?: Sql): Promise<void> {
   const db = sql ?? (await (await import("./db.ts")).getSql());
+  // Deploys do not run migrations (the build has no database connection), so
+  // the touch provisions its own table. `migrations/0013_keepalive.sql` remains
+  // the canonical schema for a fresh database; both are idempotent.
+  await db`
+    create table if not exists sbfp_keepalive (
+      kind text primary key,
+      ts timestamptz not null default now()
+    )
+  `;
   // The table name is a constant, so it is written inline: interpolating it
   // would make the driver send it as a bound parameter (`insert into $1`).
   await db`
