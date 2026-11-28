@@ -3,10 +3,10 @@
  * Database migrator (node-postgres, `pg`).
  *
  * Run it explicitly with `npm run db:migrate`; it is deliberately NOT part of
- * `npm run build`. A Vercel build has no trusted TLS path to the database (it
- * fails with SELF_SIGNED_CERT_IN_CHAIN), and a frontend build should not mutate
- * production data. Run this from a machine that can verify the database's
- * certificate chain, or set `SUPABASE_CA_CERT` / `PG_SSL_CA_CERT` first.
+ * `npm run build`, because a frontend build should not mutate production data.
+ * It reads the same TLS settings as the app (`pgPoolOptions`), including the
+ * bundled Supabase root CAs, so it no longer needs a certificate pasted into
+ * the environment first.
  *
  * Each file in ../migrations is applied in one transaction and recorded in a
  * `_migrations` table, so it runs once and is safe to re-run. The read is

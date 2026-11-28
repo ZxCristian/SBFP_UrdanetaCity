@@ -14,14 +14,17 @@
  * verification — rather than the old `no-verify` shortcut, which made a
  * man-in-the-middle attack against the database connection possible.
  *
- * Supabase's pooler certificate is signed by Supabase's own root CA, so
- * verification needs that CA. Put the PEM certificate in
- * `SUPABASE_CA_CERT` (or `PG_SSL_CA_CERT`) and it is passed to node-postgres
- * without putting a file path in the connection string; Vercel has no durable
- * filesystem for a downloaded certificate. An operator who explicitly sets
- * `sslmode=no-verify` (or legacy `require`/`prefer`) gets strict verification
- * too, unless they deliberately opt out with `PG_ALLOW_INSECURE_TLS=true`.
+ * Supabase's endpoints are signed by Supabase's own root CA, so verification
+ * needs that CA — it is not in Node's trust store. The public roots ship in
+ * `supabase-ca.mjs` and are used automatically for Supabase hosts; an operator
+ * can still override them with a PEM in `SUPABASE_CA_CERT` (or
+ * `PG_SSL_CA_CERT`), which is passed to node-postgres without putting a file
+ * path in the connection string (Vercel has no durable filesystem). An operator
+ * who explicitly sets `sslmode=no-verify` (or legacy `require`/`prefer`) gets
+ * strict verification too, unless they deliberately opt out with
+ * `PG_ALLOW_INSECURE_TLS=true`.
  */
+import { SUPABASE_CA_BUNDLE } from "./supabase-ca.mjs";
 
 const SSL_QUERY_PARAMS = ["sslmode", "sslrootcert", "sslcert", "sslkey"];
 
@@ -136,10 +139,11 @@ export function databaseUrlFromEnv(env = process.env) {
  * scarce pool slot indefinitely. `PG_STATEMENT_TIMEOUT_MS` can raise or lower
  * the 15-second default for a deliberately long maintenance query.
  *
- * If `SUPABASE_CA_CERT` / `PG_SSL_CA_CERT` is set, it is passed as the trusted
- * CA in an `ssl` object and TLS parameters are removed from the URL (otherwise
- * the URL's TLS options would replace the object). `\n` escapes in the env var
- * are accepted so a one-line secret can hold a multiple-line PEM.
+ * The trusted CA is passed as an `ssl` object and TLS parameters are removed
+ * from the URL (otherwise the URL's TLS options would replace the object). It
+ * is `SUPABASE_CA_CERT` / `PG_SSL_CA_CERT` when set, otherwise Supabase's
+ * bundled public roots for a Supabase host. `\n` escapes in the env var are
+ * accepted so a one-line secret can hold a multiple-line PEM.
  *
  * @param {string} connectionString
  * @param {{ max?: number }} [options]
@@ -160,7 +164,12 @@ export function pgPoolOptions(connectionString, options = {}) {
   const timeout = Number.isFinite(requestedTimeout) && requestedTimeout >= 1000
     ? Math.floor(requestedTimeout)
     : 15_000;
-  const ca = (process.env.SUPABASE_CA_CERT ?? process.env.PG_SSL_CA_CERT)?.trim();
+  const envCa = (process.env.SUPABASE_CA_CERT ?? process.env.PG_SSL_CA_CERT)?.trim();
+  // Supabase signs its own endpoints, so Node's trust store rejects them with
+  // `self-signed certificate in certificate chain` — every query would 500 on
+  // a deploy that did not paste a CA into its environment. The public roots
+  // are bundled instead, keeping identity verification on by default.
+  const ca = envCa || (isSupabaseHost(connectionString) ? SUPABASE_CA_BUNDLE : undefined);
   const common = {
     connectionString: ca
       ? withoutSslParams(withSslMode(connectionString))

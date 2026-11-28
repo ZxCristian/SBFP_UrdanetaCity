@@ -120,9 +120,38 @@ describe("pgPoolOptions", () => {
     assert.equal(pgPoolOptions("postgresql://user@localhost/app", { max: 1 }).max, 1);
   });
 
-  it("normalizes a Supabase connection string to verified TLS", () => {
+  it("verifies a Supabase connection against the bundled root CAs", () => {
     const options = pgPoolOptions("postgresql://user@db.x.supabase.co:5432/postgres");
-    assert.match(options.connectionString, /\?sslmode=verify-full$/);
+    // The CA must be passed explicitly and the URL's TLS options removed, or
+    // pg-connection-string would replace the ssl object with the URL's own.
+    assert.equal(options.connectionString, "postgresql://user@db.x.supabase.co:5432/postgres");
+    assert.equal(options.ssl?.rejectUnauthorized, true);
+    assert.equal(
+      options.ssl?.ca?.match(/-----BEGIN CERTIFICATE-----/g)?.length,
+      2,
+      "both Supabase roots are trusted",
+    );
+  });
+
+  it("verifies a Supabase pooler connection with the same bundle", () => {
+    const options = pgPoolOptions(
+      "postgresql://postgres.x:pw@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?sslmode=require",
+    );
+    assert.equal(
+      options.connectionString,
+      "postgresql://postgres.x:pw@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres",
+    );
+    assert.equal(options.ssl?.rejectUnauthorized, true);
+    assert.match(options.ssl?.ca ?? "", /BEGIN CERTIFICATE/);
+  });
+
+  it("does not impose a CA on a non-Supabase database", () => {
+    const options = pgPoolOptions("postgresql://user@db.example.com:5432/app?sslmode=verify-full");
+    assert.equal(options.ssl, undefined);
+    assert.equal(
+      options.connectionString,
+      "postgresql://user@db.example.com:5432/app?sslmode=verify-full",
+    );
   });
 
   it("passes a supplied Supabase CA as an explicit ssl object", () => {
